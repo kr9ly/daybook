@@ -48,14 +48,19 @@ def main() -> None:
             if counter.get("type") == "LINE":
                 missed += int(counter.get("missed"))
                 covered += int(counter.get("covered"))
-    pct = covered / (missed + covered) * 100
-    value = f"{pct:.1f}%"
+    total = missed + covered
+    # 計測対象コードがまだ無い（スケルトン段階）でもバッジ生成を落とさない
+    if total == 0:
+        value, badge_color = "n/a", "#9f9f9f"  # lightgrey
+    else:
+        pct = covered / total * 100
+        value, badge_color = f"{pct:.1f}%", color(pct)
 
     label_width = 61
     value_width = 12 + 8 * len(value)
     svg = TEMPLATE.format(
         value=value,
-        color=color(pct),
+        color=badge_color,
         w=label_width + value_width,
         lw=label_width,
         vw=value_width,
