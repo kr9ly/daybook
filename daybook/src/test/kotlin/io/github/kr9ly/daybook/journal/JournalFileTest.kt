@@ -131,6 +131,19 @@ class JournalFileTest {
     }
 
     @Test
+    fun negativeLengthField_isTreatedAsCorruption() {
+        val file = journalFile()
+        JournalFile.open(file).use { it.append(byteArrayOf(1)) }
+        // 2 レコード目として「長さ = -1」の残骸を書く
+        file.appendBytes(byteArrayOf(-1, -1, -1, -1, 0, 0))
+
+        JournalFile.open(file).use { journal ->
+            assertRecords(listOf(byteArrayOf(1)), journal.replayedRecords)
+            assertTrue(journal.recoveredFromCorruption)
+        }
+    }
+
+    @Test
     fun truncatedTail_everyCutPosition_recoversFullyPersistedRecords() {
         val records = listOf(byteArrayOf(1, 1), byteArrayOf(2), byteArrayOf(3, 3, 3))
         val reference = journalFile()
