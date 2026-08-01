@@ -1,0 +1,6 @@
+NOTES.local.md
+.gradle/
+.gradle-home/
+build/
+local.properties
+.idea/
