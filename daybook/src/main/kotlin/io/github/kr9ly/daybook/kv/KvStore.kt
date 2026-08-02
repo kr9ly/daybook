@@ -1,7 +1,9 @@
 package io.github.kr9ly.daybook.kv
 
+import io.github.kr9ly.daybook.journal.DirectorySync
 import io.github.kr9ly.daybook.journal.FileSink
 import io.github.kr9ly.daybook.journal.JournalDirectory
+import io.github.kr9ly.daybook.journal.defaultDirectorySync
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalSink
 import io.github.kr9ly.daybook.journal.SyncMode
@@ -56,11 +58,13 @@ internal enum class CompactionPhase {
  * 状態を変えないため、変更通知は発生しない。
  */
 internal class KvStore private constructor(
+    private val directoryFile: File,
     private val directory: JournalDirectory,
     private var generation: Long,
     private var journal: JournalFile,
     private val syncMode: SyncMode,
     private val sinkFactory: (File) -> JournalSink,
+    private val directorySync: DirectorySync,
     private val compactionThreshold: Long,
     private val compactionHook: (CompactionPhase) -> Unit,
     private val cache: ConcurrentHashMap<String, Any>,
@@ -163,6 +167,11 @@ internal class KvStore private constructor(
             newJournal.force()
             compactionHook(CompactionPhase.SNAPSHOT_WRITTEN)
             directory.commit(newGeneration)
+            if (syncMode == SyncMode.SYNC) {
+                // rename の永続化。これがないと電源断で rename が巻き戻り、
+                // 以後の SYNC 追記（tmp の inode に fsync 済み）が復旧時の残骸掃除で消えうる
+                directorySync.sync(directoryFile)
+            }
             compactionHook(CompactionPhase.GENERATION_COMMITTED)
         } catch (e: Throwable) {
             newJournal.close()
@@ -239,6 +248,7 @@ internal class KvStore private constructor(
             syncMode: SyncMode = SyncMode.ASYNC,
             compactionThreshold: Long = DEFAULT_COMPACTION_THRESHOLD,
             sinkFactory: (File) -> JournalSink = ::FileSink,
+            directorySync: DirectorySync = defaultDirectorySync(),
             compactionHook: (CompactionPhase) -> Unit = {},
         ): KvStore {
             val journalDirectory = JournalDirectory(directory, name)
@@ -249,6 +259,12 @@ internal class KvStore private constructor(
                 journal.replayedRecords.forEach { payload ->
                     applyReplayed(cache, KvOperationCodec.decode(payload))
                 }
+                if (syncMode == SyncMode.SYNC) {
+                    // ジャーナルファイルの「名前」の永続化。内容をいくら fsync しても、
+                    // 作成（や採用 rename）がディレクトリに永続化されるまでは
+                    // 電源断でファイルごと孤児になりうる
+                    directorySync.sync(directory)
+                }
             } catch (e: Throwable) {
                 journal.close()
                 throw e
@@ -256,11 +272,13 @@ internal class KvStore private constructor(
             // 旧世代の削除は最新世代を開けてから（開けなかったとき直前の世代を道連れにしない）
             journalDirectory.deleteOlderThan(generation)
             return KvStore(
+                directoryFile = directory,
                 directory = journalDirectory,
                 generation = generation,
                 journal = journal,
                 syncMode = syncMode,
                 sinkFactory = sinkFactory,
+                directorySync = directorySync,
                 compactionThreshold = compactionThreshold,
                 compactionHook = compactionHook,
                 cache = cache,

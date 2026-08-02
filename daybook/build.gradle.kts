@@ -40,6 +40,21 @@ kotlin {
     }
 }
 
+kover {
+    reports {
+        filters {
+            excludes {
+                // android.system.Os は Android ランタイム専用で JVM ユニットテストから実行できない。
+                // 実機挙動は Instrumentation テスト（release-1.0.0 スコープ）で検証する
+                classes(
+                    "io.github.kr9ly.daybook.journal.OsDirectorySync",
+                    "io.github.kr9ly.daybook.journal.AndroidDirectorySyncKt",
+                )
+            }
+        }
+    }
+}
+
 mavenPublishing {
     publishToMavenCentral()
     // 署名鍵が渡されたときだけ署名する（publishToMavenLocal でのローカル検証を素通しにするため）

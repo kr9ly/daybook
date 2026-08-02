@@ -1,6 +1,7 @@
 package io.github.kr9ly.daybook.kv
 
 import io.github.kr9ly.daybook.journal.JournalFile
+import io.github.kr9ly.daybook.journal.SyncMode
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -184,6 +185,51 @@ class KvStoreCompactionTest {
             assertEquals("new", store.get("key"))
         }
         assertFalse(generationFile(1).exists())
+    }
+
+    // --- ディレクトリ fsync（SYNC モードの耐久性契約） ---
+
+    @Test
+    fun syncMode_syncsDirectoryAtOpenAndAfterRename() {
+        val synced = mutableListOf<File>()
+        KvStore.open(
+            directory = tmp.root,
+            name = "store",
+            syncMode = SyncMode.SYNC,
+            compactionThreshold = 1,
+            directorySync = { synced.add(it) },
+        ).use { store ->
+            // オープン直後: ファイル作成（や採用 rename）の永続化
+            assertEquals(1, synced.size)
+            store.put("key", "v") // compaction が走り、rename 後にもう一度
+            assertEquals(2, synced.size)
+        }
+        assertEquals(listOf(tmp.root, tmp.root), synced)
+    }
+
+    @Test
+    fun asyncMode_neverSyncsDirectory() {
+        var syncs = 0
+        KvStore.open(
+            directory = tmp.root,
+            name = "store",
+            compactionThreshold = 1,
+            directorySync = { syncs++ },
+        ).use { store ->
+            store.put("key", "v") // compaction は走るがディレクトリ fsync はしない
+        }
+        assertEquals(0, syncs)
+    }
+
+    @Test
+    fun syncModeWithRealDirectorySync_worksOnJvm() {
+        // デフォルトの DirectorySync（JVM では nio 実装）で実際に fsync まで通す
+        KvStore.open(tmp.root, "store", syncMode = SyncMode.SYNC, compactionThreshold = 1).use { store ->
+            store.put("key", "value")
+        }
+        KvStore.open(tmp.root, "store", syncMode = SyncMode.SYNC).use { store ->
+            assertEquals("value", store.get("key"))
+        }
     }
 
     @Test
