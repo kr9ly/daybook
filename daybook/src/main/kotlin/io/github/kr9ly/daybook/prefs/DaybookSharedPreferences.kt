@@ -1,8 +1,6 @@
 package io.github.kr9ly.daybook.prefs
 
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
 import io.github.kr9ly.daybook.kv.KvOperation
 import io.github.kr9ly.daybook.kv.KvStore
 import java.io.IOException
@@ -36,7 +34,7 @@ import java.util.WeakHashMap
  */
 internal class DaybookSharedPreferences(
     private val store: KvStore,
-    private val mainHandler: Handler = Handler(Looper.getMainLooper()),
+    private val delivery: ChangeNotificationDelivery = MainThreadDelivery(),
 ) : SharedPreferences {
 
     /** commit の「状態読み取り → バッチ書き込み」を他の commit と直列化するロック。 */
@@ -46,16 +44,22 @@ internal class DaybookSharedPreferences(
     private val listeners = WeakHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Unit>()
 
     // Set は防御コピーで返す（クラス KDoc の意図的な非互換を参照）
-    override fun getAll(): Map<String, *> = store.getAll().mapValues { (_, value) ->
-        if (value is Set<*>) value.toSet() else value
+    override fun getAll(): Map<String, *> {
+        val copied = HashMap<String, Any>()
+        for ((key, value) in store.getAll()) {
+            copied[key] = if (value is Set<*>) value.toSet() else value
+        }
+        return copied
     }
 
     override fun getString(key: String, defValue: String?): String? =
         store.get(key) as String? ?: defValue
 
     @Suppress("UNCHECKED_CAST")
-    override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? =
-        (store.get(key) as Set<String>?)?.toSet() ?: defValues
+    override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? {
+        val stored = store.get(key) as Set<String>? ?: return defValues
+        return stored.toSet()
+    }
 
     override fun getInt(key: String, defValue: Int): Int =
         store.get(key) as Int? ?: defValue
@@ -199,7 +203,7 @@ internal class DaybookSharedPreferences(
             if (listeners.isEmpty()) return
             listeners.keys.toList()
         }
-        val deliver = Runnable {
+        delivery.deliver {
             // API 30+ 挙動: clear は key = null を 1 回、変更キーより先に配送する
             if (keysCleared) {
                 snapshot.forEach { it.onSharedPreferenceChanged(this, null) }
@@ -208,11 +212,6 @@ internal class DaybookSharedPreferences(
             changedKeys.asReversed().forEach { key ->
                 snapshot.forEach { it.onSharedPreferenceChanged(this, key) }
             }
-        }
-        if (Looper.myLooper() == mainHandler.looper) {
-            deliver.run()
-        } else {
-            mainHandler.post(deliver)
         }
     }
 }

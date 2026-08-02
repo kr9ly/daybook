@@ -221,6 +221,18 @@ framework の prefs の上でも同じに動くため、「型安全層と Flow 
 - 連続双方向同期は提供しない: ループと競合解決の泥沼になり互換保証を汚すため。フレームワークの prefs を直読みする SDK と併走したい場合は、見せたい編集の後に明示 export を呼ぶエスケープハッチで対応する
 - 型システムの制約: 相互変換を保証するため、daybook の値型は SharedPreferences がサポートする型に揃える — `String` / `Int` / `Long` / `Float` / `Boolean` / `Set<String>`。独自型の追加（`ByteArray` 等）は往復可能性を壊すため、やるなら v2 以降で「export 不可」を型レベルで明示できる形を考えてから
 
+### アプリケーションテスト支援（daybook-test）
+
+アプリ側のユニットテストで使う in-memory 実装を、独立モジュール daybook-test として提供する。
+
+- 立て付け: アダプタ層以上（Editor バッチ・通知算出・リスナー・型安全層）は本物を共有し、KvStore の裏のジャーナルだけを in-memory の no-op（InMemoryJournal）に差し替える。fake の別実装を作らない — アプリのテストが本番と同じコードパスを通ることが提供価値
+- 永続層は in-memory でよい: アプリのテストが検証したいものは全部アダプタ層以上に住んでいる。ジャーナル・compaction・電源断はライブラリ自身のテスト責務（この裁定でクラッシュ注入 API の公開論点も消える）
+- 取得口はコンテナ方式: `TestDaybook()` インスタンスが 1 つの世界を表し、テストごとに new すれば隔離が成立する（グローバル状態と reset API を持たない）。同名同一インスタンス・multiProcess フラグ整合チェックは本番と同じ契約を守る
+- 通知は同期配送: リスナー通知の配送手段を継ぎ目（ChangeNotificationDelivery）として抽象化し、本番はメインスレッド（MainThreadDelivery）、テストは呼び出しスレッドで即時実行。commit が返った時点で通知済みになり、アサーションが決定的になる。素の JVM で Looper に触れない効果も兼ねる
+- 書き込みの観測は commit 粒度: `commits(name)` がジャーナルレコードと同じ単位（= アトミック性の単位）で実効変更を記録する。同値 put などディスクに届かない編集は本番同様に現れない。キー単位の履歴クエリは提供しない — 通知は changesAsFlow / リスナーで自前観測でき、外から観測不能なのはバッチ境界だけ
+- 失敗注入: `failNextWrite(name)` が次の実効書き込みをディスク障害と同じ経路（IOException）で失敗させる。in-memory は自然に失敗しないため、これがないと commit == false / apply 破棄のアプリ側エラーハンドリングがテスト不能になる
+- コアとの橋渡し: 別モジュールからは internal に触れないため、`@RequiresOptIn` 注釈（DaybookInternalApi）付きの公開ブリッジ（DaybookTestBridge）をコアに置く。互換性保証の対象外であることを opt-in 強制で明示する
+
 ## テスト戦略
 
 「コアは JVM で網羅、実機は結合点だけ」の分離:

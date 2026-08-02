@@ -8,6 +8,8 @@ import io.github.kr9ly.daybook.journal.InterProcessLock
 import io.github.kr9ly.daybook.journal.JournalDirectory
 import io.github.kr9ly.daybook.journal.JournalWatcherFactory
 import io.github.kr9ly.daybook.journal.defaultDirectorySync
+import io.github.kr9ly.daybook.journal.InMemoryJournal
+import io.github.kr9ly.daybook.journal.Journal
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalSink
 import io.github.kr9ly.daybook.journal.SyncMode
@@ -72,7 +74,7 @@ internal class KvStore private constructor(
     private val directoryFile: File,
     private val directory: JournalDirectory,
     private var generation: Long,
-    private var journal: JournalFile,
+    private var journal: Journal,
     private val syncMode: SyncMode,
     private val sinkFactory: (File) -> JournalSink,
     private val directorySync: DirectorySync,
@@ -83,6 +85,12 @@ internal class KvStore private constructor(
     private val cache: ConcurrentHashMap<String, Any>,
     /** オープン時にジャーナルの壊れたテールを切り捨てて復旧したか。 */
     val recoveredFromCorruption: Boolean,
+    /**
+     * ジャーナル追記の直前に操作ごとに呼ばれるフック（通常のストアでは no-op）。
+     * IOException を投げると追記失敗と同じ経路に乗る
+     * （[openInMemory] が書き込み観測・失敗注入の継ぎ目として使う）。
+     */
+    private val writeHook: (KvOperation.Mutation) -> Unit = {},
 ) : Closeable {
 
     /**
@@ -194,6 +202,7 @@ internal class KvStore private constructor(
                     // 追記先を最新に合わせる（他プロセスの compaction・追記の取り込み）
                     catchUp()
                 }
+                writeHook(op)
                 journal.append(payload)
                 applyAndNotify(op)
                 maybeCompact()
@@ -398,6 +407,34 @@ internal class KvStore private constructor(
          * [lockFactory] と [watcherFactory] は「1 JVM 内で複数プロセスを模す」
          * JVM テスト用の注入点（実 FileLock / FileObserver は Instrumentation テストで検証）。
          */
+        /** [open] のデフォルトフック（no-op）。[openInMemory] と共有する。 */
+        private val NO_OP_COMPACTION_HOOK: (CompactionPhase) -> Unit = {}
+
+        /**
+         * ファイルを一切持たないストアを返す（daybook-test 用）。
+         *
+         * キャッシュ・Editor バッチ・通知・値の型検査は [open] のストアと同一コードパスで、
+         * 永続化だけが不在: [InMemoryJournal] が追記を捨て、[writeHook] が追記の直前に呼ばれる。
+         * [writeHook] が IOException を投げると追記失敗と同じ経路に乗る（書き込み観測・失敗注入の継ぎ目）。
+         * compaction は length が育たないため、watcher・プロセス間ロックはマルチプロセス限定のため、
+         * 構造的に起動しない（directoryFile / directory は到達しないダミー）。
+         */
+        fun openInMemory(writeHook: (KvOperation.Mutation) -> Unit = {}): KvStore = KvStore(
+            directoryFile = File(""),
+            directory = JournalDirectory(File(""), "in-memory"),
+            generation = 0,
+            journal = InMemoryJournal,
+            syncMode = SyncMode.ASYNC,
+            sinkFactory = ::FileSink,
+            directorySync = defaultDirectorySync(),
+            compactionThreshold = DEFAULT_COMPACTION_THRESHOLD,
+            compactionHook = NO_OP_COMPACTION_HOOK,
+            interProcessLock = null,
+            cache = ConcurrentHashMap(),
+            recoveredFromCorruption = false,
+            writeHook = writeHook,
+        )
+
         fun open(
             directory: File,
             name: String = "daybook",
@@ -406,7 +443,7 @@ internal class KvStore private constructor(
             compactionThreshold: Long = DEFAULT_COMPACTION_THRESHOLD,
             sinkFactory: (File) -> JournalSink = ::FileSink,
             directorySync: DirectorySync = defaultDirectorySync(),
-            compactionHook: (CompactionPhase) -> Unit = {},
+            compactionHook: (CompactionPhase) -> Unit = NO_OP_COMPACTION_HOOK,
             lockFactory: (File) -> InterProcessLock = ::FileInterProcessLock,
             watcherFactory: JournalWatcherFactory = FileObserverJournalWatcherFactory(),
         ): KvStore {

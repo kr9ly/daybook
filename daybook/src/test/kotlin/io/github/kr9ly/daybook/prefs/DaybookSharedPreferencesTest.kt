@@ -110,6 +110,22 @@ class DaybookSharedPreferencesTest {
     }
 
     @Test
+    fun getAll_onEmptyPrefs_returnsEmptyMap() {
+        val prefs = openPrefs()
+        assertEquals(emptyMap<String, Any?>(), prefs.all)
+    }
+
+    @Test
+    fun getAll_copiesSetValues_passesOthersThrough() {
+        val prefs = openPrefs()
+        prefs.edit().putStringSet("tags", setOf("a", "b")).putInt("count", 1).commit()
+        val all = prefs.all
+        assertEquals(mapOf<String, Any?>("tags" to setOf("a", "b"), "count" to 1), all)
+        (all["tags"] as MutableSet<String>).add("c") // 返り値をいじってもストアに影響しない
+        assertEquals(setOf("a", "b"), prefs.getStringSet("tags", null))
+    }
+
+    @Test
     fun contains_reflectsState() {
         val prefs = openPrefs()
         assertFalse(prefs.contains("key"))

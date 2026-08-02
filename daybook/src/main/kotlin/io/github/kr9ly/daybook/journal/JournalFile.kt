@@ -1,6 +1,5 @@
 package io.github.kr9ly.daybook.journal
 
-import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -51,18 +50,19 @@ internal class JournalFile private constructor(
     private val sink: JournalSink,
     private val syncMode: SyncMode,
     /** オープン時のリプレイで得た正常レコード列。 */
-    val replayedRecords: List<ByteArray>,
+    override val replayedRecords: List<ByteArray>,
     /** オープン時に壊れたテールを切り捨てて復旧したか。 */
     val recoveredFromCorruption: Boolean,
     initialLength: Long,
-) : Closeable {
+) : Journal {
 
     /** 現在のファイルサイズ（ヘッダ + 正常レコード列）。compaction の閾値判定用。 */
-    var length: Long = initialLength
-        private set
+    private var currentLength: Long = initialLength
+
+    override val length: Long get() = currentLength
 
     /** レコードを末尾に追記する。SYNC モードでは追記ごとに fsync する。 */
-    fun append(payload: ByteArray) {
+    override fun append(payload: ByteArray) {
         require(payload.size <= MAX_PAYLOAD_SIZE) {
             "payload too large: ${payload.size} bytes (max $MAX_PAYLOAD_SIZE)"
         }
@@ -73,14 +73,14 @@ internal class JournalFile private constructor(
         crc.update(buf.array(), 0, LENGTH_SIZE + payload.size)
         buf.putInt(crc.value.toInt())
         sink.write(buf.array())
-        length += buf.array().size
+        currentLength += buf.array().size
         if (syncMode == SyncMode.SYNC) {
             sink.force()
         }
     }
 
     /** これまでの追記を永続ストレージに同期する（fsync）。 */
-    fun force() {
+    override fun force() {
         sink.force()
     }
 
@@ -93,14 +93,14 @@ internal class JournalFile private constructor(
      * 切り捨てず読み残す（次回の呼び出しで完成していれば読める）。
      * テールの切り捨てはオープン時の復旧だけの権利。
      */
-    fun readNewRecords(): List<ByteArray> {
+    override fun readNewRecords(): List<ByteArray> {
         val end = reader.length()
-        if (end <= length) return emptyList()
-        val tail = ByteArray((end - length).toInt())
-        reader.seek(length)
+        if (end <= currentLength) return emptyList()
+        val tail = ByteArray((end - currentLength).toInt())
+        reader.seek(currentLength)
         reader.readFully(tail)
         val result = scanRecords(tail, 0)
-        length += result.validLength
+        currentLength += result.validLength
         return result.records
     }
 

@@ -84,11 +84,33 @@ settings.fontScalePref.asFlow()                          // Flow<Float>（dayboo
 prefs.changesAsFlow()                                    // Flow<String?>（daybook-coroutines）。変更キーのイベント流、clear は null
 ```
 
+### アプリのテスト（daybook-test）
+
+daybook-test は素の JVM で動く in-memory の SharedPreferences を提供する（Robolectric・実機不要）。
+中身は本物の daybook アダプタ層なので、Editor バッチ・通知算出・リスナー・防御コピーの挙動が本番と同一。
+型安全 API と Flow アダプタもそのまま載る。
+
+```kotlin
+val daybook = TestDaybook()                              // テストごとに new すれば隔離される（reset 不要）
+val prefs = daybook.getSharedPreferences("settings")     // アプリのコードに注入する
+
+// 通知は同期配送: commit() が返った時点でリスナー・Flow まで届いている（決定的アサーション）
+repo.updateProfile("alice", avatar)
+
+// commit 粒度の書き込み記録: 「関連キーが 1 つの edit にまとまっているか」を直接検証できる
+val commit = daybook.commits("settings").single()
+assertEquals(setOf("name", "avatar"), commit.changes.keys)
+
+// 失敗注入: commit() == false / apply 破棄のエラーハンドリングをテストする
+daybook.failNextWrite("settings")
+assertFalse(prefs.edit().putString("name", "bob").commit())
+```
+
 ## Status
 
 実装済み: ジャーナル層、KV エンコード層、インメモリキャッシュ、compaction（世代方式）、
 マルチプロセス対応（実機検証済み）、SharedPreferences 互換レイヤー、相互マイグレーション、
-型安全 API、Flow アダプタ（daybook-coroutines）。
+型安全 API、Flow アダプタ（daybook-coroutines）、テスト支援（daybook-test）。
 JVM テストは行・ブランチカバレッジ 100%、結合点は Instrumentation テストで実機検証。
 
 未了: 公開 API の凍結レビュー、Maven Central 公開。
