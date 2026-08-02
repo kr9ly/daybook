@@ -38,7 +38,7 @@
 
 - SharedPreferences: 書き込みは全量 XML 書き換えで、`apply()` のライフサイクル境界での同期待ち（QueuedWork）がヘビーユースで ANR になる。破損には .bak 待避で概ね耐えるが、書き換え中の電源断でコミット済みの編集が失われうる。マルチプロセスは MODE_MULTI_PROCESS が deprecated（もともと信頼できない）
 - DataStore: 読み出しが Flow / suspend 前提で、同期読みには runBlocking が要る。SharedPreferences からはデータ移行ツールはあるが、API は全面書き換えになる。Proto DataStore なら任意の型を格納できる
-- MMKV: SharedPreferences インターフェースを実装しているが、apply/commit のセマンティクスや変更リスナーは互換でない（△ の理由）。破損は CRC で検出するが、検出時は該当データを捨てるのが既定。変更通知の仕組みを持たない。コアは C++
+- MMKV: SharedPreferences インターフェースを実装しているが、変更リスナーは未実装（登録を呼ぶと UnsupportedOperationException）で、apply/commit のセマンティクスも互換でない（△ の理由）。破損は CRC で検出するが、検出時は全データを捨てるのが既定（ベストエフォート復旧は opt-in）。コアは C++
 - daybook: 値型は SharedPreferences 互換の 6 種に固定（相互マイグレーションの往復可能性を守るための意図的な制約）。新参で実績はこれから
 
 ## セットアップ
