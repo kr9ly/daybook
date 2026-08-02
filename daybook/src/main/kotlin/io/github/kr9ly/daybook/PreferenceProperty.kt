@@ -52,6 +52,56 @@ public class PreferenceProperty<T> internal constructor(
     override fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {
         set(value)
     }
+
+    /**
+     * Adapts this property to another value type by converting at the boundary:
+     * [decode] on every read, [encode] on every write.
+     *
+     * The result is a full [PreferenceProperty] over the same key, so delegation and
+     * `asFlow()` work unchanged. The default stays declared on the stored side; `map`
+     * is pure value conversion and never sees "absent".
+     *
+     * ```kotlin
+     * var theme by prefs.string("theme", default = Theme.SYSTEM.name)
+     *     .map(decode = Theme::valueOf, encode = Theme::name)
+     * ```
+     *
+     * Conversion failures (e.g. a stored value that [decode] no longer understands)
+     * propagate as-is; catch inside [decode] and return a fallback if you want
+     * lenient reads.
+     */
+    public fun <R> map(decode: (T) -> R, encode: (R) -> T): PreferenceProperty<R> =
+        PreferenceProperty(
+            preferences,
+            key,
+            { preferences -> decode(read(preferences)) },
+            { editor, value -> write(editor, encode(value)) },
+        )
+
+    /**
+     * Recovers from read failures with [handler], like `Flow.catch`: only the read path
+     * (including upstream [map] decoding) is covered — write failures are caller bugs
+     * and propagate as-is.
+     *
+     * ```kotlin
+     * var theme by prefs.string("theme", default = Theme.SYSTEM.name)
+     *     .map(decode = Theme::valueOf, encode = Theme::name)
+     *     .catch { Theme.SYSTEM }
+     * ```
+     */
+    public fun catch(handler: (Exception) -> T): PreferenceProperty<T> =
+        PreferenceProperty(
+            preferences,
+            key,
+            { preferences ->
+                try {
+                    read(preferences)
+                } catch (e: Exception) {
+                    handler(e)
+                }
+            },
+            write,
+        )
 }
 
 /** Typed boolean entry under [key], returning [default] when absent. */

@@ -176,6 +176,18 @@ framework の prefs の上でも同じに動くため、「型安全層と Flow 
   複数キーのアトミックな一括更新は従来の Editor に落ちる — 互換 API と地続きなのがこの構成の利点
 - `asFlow()`: collect 時に現在値を発火 → 以降は自キーの変更（clear 含む）で再読して発火。
   conflate + distinctUntilChanged。リスナー契約に載るため、発火はプロセス内の編集のみ・同値 put では発火しない
+- 値のアダプタ: `map(decode, encode)` で境界の双方向変換を合成し、同じキーの `PreferenceProperty<R>` を返す。
+  デリゲートも asFlow もそのまま効く（distinctUntilChanged は変換後の equals）。
+  デフォルトは格納側の世界で宣言し、map は不在時の挙動に関与しない純粋な値変換。
+  decode の失敗はポリシーを持たずそのまま伝播（互換 API の ClassCastException と同じ fail-fast の系譜）
+- 読み取りの回復: `catch(handler)` を Flow の catch と同型のコンビネータとして提供。
+  読み取り経路（上流の map の decode を含む）だけを包み、書き込み（encode）の失敗は
+  呼び出し側のバグとしてそのまま投げる。デフォルトは fail-fast、回復はチェーンで明示的に opt-in
+- enum シュガー（`prefs.enum("theme", default = Theme.SYSTEM)` 相当）は意図的に見送り:
+  `Enum.name` を永続表現に使う結合を既定路線として祝福すると、キー名で避けた
+  「リネームで永続データが黙って壊れる」罠の値版を作ってしまう。
+  name で保存したいユーザーは `map(decode = Theme::valueOf, encode = Theme::name)` を明示的に書く
+  （結合がコードに見える）
 
 ### SharedPreferences 互換レイヤー（公開 API 表面）
 

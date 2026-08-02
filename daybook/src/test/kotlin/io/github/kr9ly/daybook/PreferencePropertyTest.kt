@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -107,6 +108,71 @@ class PreferencePropertyTest {
         val property = prefs.int("count", default = 0)
         assertEquals("count", property.key)
         assertSame(prefs, property.preferences)
+    }
+
+    // --- map（境界での値変換） ---
+
+    private enum class Theme { SYSTEM, DARK }
+
+    @Test
+    fun map_convertsOnReadAndWrite() {
+        val theme = prefs.string("theme", default = Theme.SYSTEM.name)
+            .map(decode = Theme::valueOf, encode = Theme::name)
+
+        assertEquals(Theme.SYSTEM, theme.get()) // 不在 → 格納側デフォルトを decode
+        theme.set(Theme.DARK)
+        assertEquals(Theme.DARK, theme.get())
+        // 格納表現は変換前の型（素の互換 API から見える）
+        assertEquals("DARK", prefs.getString("theme", null))
+        // key / preferences は合成後も引き継がれる（asFlow の前提）
+        assertEquals("theme", theme.key)
+        assertSame(prefs, theme.preferences)
+    }
+
+    @Test
+    fun map_worksAsDelegate() {
+        var theme by prefs.string("theme", default = Theme.SYSTEM.name)
+            .map(decode = Theme::valueOf, encode = Theme::name)
+        assertEquals(Theme.SYSTEM, theme)
+        theme = Theme.DARK
+        assertEquals(Theme.DARK, theme)
+    }
+
+    @Test
+    fun map_composesWithNullableBase() {
+        // S = String? のまま型が流れる。null の扱いは decode/encode のシグネチャに現れる
+        val port = prefs.string("port").map(
+            decode = { it?.toInt() },
+            encode = { it?.toString() },
+        )
+        assertNull(port.get())
+        port.set(8080)
+        assertEquals(8080, port.get())
+        port.set(null) // null の代入はキー削除（base の契約が透過する）
+        assertFalse(prefs.contains("port"))
+    }
+
+    @Test
+    fun catch_recoversFromDecodeFailure() {
+        prefs.edit().putString("theme", "NO_SUCH_THEME").commit()
+        val theme = prefs.string("theme", default = Theme.SYSTEM.name)
+            .map(decode = Theme::valueOf, encode = Theme::name)
+            .catch { Theme.SYSTEM }
+
+        assertEquals(Theme.SYSTEM, theme.get()) // 壊れた格納値はフォールバック
+        theme.set(Theme.DARK)
+        assertEquals(Theme.DARK, theme.get()) // 正常経路は素通し（catch は読み取りだけを包む）
+    }
+
+    @Test
+    fun map_decodeFailure_propagatesAsIs() {
+        // ポリシーレス: 変換の失敗は握りつぶさず呼び出し側に返す（fail-fast の系譜）
+        prefs.edit().putString("theme", "NO_SUCH_THEME").commit()
+        val theme = prefs.string("theme", default = Theme.SYSTEM.name)
+            .map(decode = Theme::valueOf, encode = Theme::name)
+        assertThrows(IllegalArgumentException::class.java) {
+            theme.get()
+        }
     }
 
     @Test

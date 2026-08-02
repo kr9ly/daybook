@@ -71,6 +71,12 @@ class Settings(prefs: SharedPreferences) {
     // Flow が欲しいプロパティは、いったん val に受けてから by する
     val fontScalePref = prefs.float("font_scale", default = 1.0f)
     var fontScale by fontScalePref
+
+    // 値のアダプタ: map(decode, encode) で境界の双方向変換を合成する。
+    // 読み取りの回復は Flow ライクに catch をチェーンする（decode 失敗時のフォールバック）
+    var theme by prefs.string("theme", default = Theme.SYSTEM.name)
+        .map(decode = Theme::valueOf, encode = Theme::name)
+        .catch { Theme.SYSTEM }
 }
 
 settings.darkMode = true                                 // putBoolean + apply

@@ -95,6 +95,22 @@ class PreferencePropertyFlowTest {
     }
 
     @Test
+    fun mappedProperty_flowsConvertedValues() = runTest(UnconfinedTestDispatcher()) {
+        // map の返り値も PreferenceProperty なので asFlow が無変更で効く
+        val prefs = context.getDaybookSharedPreferences("flow-mapped")
+        val label = prefs.int("count", default = 0)
+            .map(decode = { "#$it" }, encode = { it.removePrefix("#").toInt() })
+        val received = mutableListOf<String>()
+        val job = launch { label.asFlow().toList(received) }
+
+        assertEquals(listOf("#0"), received)
+        label.set("#7")
+        assertEquals(listOf("#0", "#7"), received)
+        assertEquals(7, prefs.getInt("count", 0)) // 格納表現は変換前の型
+        job.cancel()
+    }
+
+    @Test
     fun worksAgainstFrameworkSharedPreferences() = runTest(UnconfinedTestDispatcher()) {
         // daybook 非依存: framework 実装の上でも同じに動く
         val prefs = context.getSharedPreferences("framework", Context.MODE_PRIVATE)
