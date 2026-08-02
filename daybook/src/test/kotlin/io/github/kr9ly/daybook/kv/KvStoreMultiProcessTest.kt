@@ -121,6 +121,31 @@ class KvStoreMultiProcessTest {
     }
 
     @Test
+    fun crossProcessBatch_arrivesAtomicallyInOperationOrder() {
+        val watcherB = ManualWatcherFactory()
+        openStore(ManualWatcherFactory()).use { a ->
+            openStore(watcherB).use { b ->
+                val events = Events()
+                b.addListener(events.listener)
+                a.writeBatch(
+                    listOf(
+                        KvOperation.Put("x", 1),
+                        KvOperation.Remove("x"),
+                        KvOperation.Put("y", "z"),
+                    ),
+                )
+                assertNull(b.get("y")) // 検知前は見えない（既知のウィンドウ）
+                watcherB.trigger()
+                assertEquals(
+                    listOf<Pair<String, Any?>>("x" to 1, "x" to null, "y" to "z"),
+                    events.await(3),
+                )
+                assertEquals(mapOf<String, Any>("y" to "z"), b.getAll())
+            }
+        }
+    }
+
+    @Test
     fun removeAndClear_propagateAcrossStores() {
         val watcherB = ManualWatcherFactory()
         openStore(ManualWatcherFactory()).use { a ->

@@ -89,6 +89,33 @@ class KvOperationCodecTest {
         assertRoundTrip(KvOperation.Remove("キー🔑"))
     }
 
+    // --- Batch ---
+
+    @Test
+    fun batch_roundTrip() {
+        assertRoundTrip(
+            KvOperation.Batch(
+                listOf(
+                    KvOperation.Clear,
+                    KvOperation.Remove("removed"),
+                    KvOperation.Put("string", "value"),
+                    KvOperation.Put("set", setOf("a", "b")),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun batchWithSingleOperation_roundTrip() {
+        // 書き込み側（KvStore.writeBatch）は 1 操作をバッチにしないが、codec としては対称に扱える
+        assertRoundTrip(KvOperation.Batch(listOf(KvOperation.Put("key", 1))))
+    }
+
+    @Test
+    fun emptyBatch_roundTrip() {
+        assertRoundTrip(KvOperation.Batch(emptyList()))
+    }
+
     // --- エンコード側の型検査 ---
 
     @Test
@@ -166,6 +193,40 @@ class KvOperationCodecTest {
         corrupted[1 + 4 + 1 + 3] = -1
         corrupted[1 + 4 + 1 + 4] = -1
         assertDecodeFails(corrupted)
+    }
+
+    @Test
+    fun decode_rejectsNegativeBatchCount() {
+        // [op=5][count=-1]
+        assertDecodeFails(byteArrayOf(5, -1, -1, -1, -1))
+    }
+
+    @Test
+    fun decode_rejectsNestedBatch() {
+        // [op=5][count=1][op=5...] — バッチの要素にバッチは書けない
+        assertDecodeFails(byteArrayOf(5, 0, 0, 0, 1, 5, 0, 0, 0, 0))
+    }
+
+    @Test
+    fun decode_rejectsSnapshotBoundaryInsideBatch() {
+        // [op=5][count=1][op=4] — マーカーは単独レコード専用
+        assertDecodeFails(byteArrayOf(5, 0, 0, 0, 1, 4))
+    }
+
+    @Test
+    fun decode_rejectsTruncatedBatch() {
+        val valid = KvOperationCodec.encode(
+            KvOperation.Batch(listOf(KvOperation.Put("key", "value"), KvOperation.Remove("key"))),
+        )
+        for (length in 0 until valid.size) {
+            assertDecodeFails(valid.copyOf(length))
+        }
+    }
+
+    @Test
+    fun decode_rejectsTrailingGarbageAfterBatch() {
+        val valid = KvOperationCodec.encode(KvOperation.Batch(listOf(KvOperation.Clear)))
+        assertDecodeFails(valid + byteArrayOf(0))
     }
 
     @Test

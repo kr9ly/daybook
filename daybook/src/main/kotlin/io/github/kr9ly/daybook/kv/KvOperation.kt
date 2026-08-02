@@ -14,6 +14,12 @@ internal sealed interface KvOperation {
     sealed interface Mutation : KvOperation
 
     /**
+     * 単一キー空間への 1 操作。[Batch] の要素になれるのはこの型だけで、
+     * バッチのネストやマーカーの混入を型で禁止する。
+     */
+    sealed interface Single : Mutation
+
+    /**
      * キーへの値の設定。
      *
      * [value] は SharedPreferences 互換の 6 種に限る:
@@ -21,13 +27,23 @@ internal sealed interface KvOperation {
      * 型をラッパーで包まず [Any] で持つのは、インメモリキャッシュが同じ表現で
      * 値を保持するため（エンコード境界での型検査は [KvOperationCodec] が行う）。
      */
-    data class Put(val key: String, val value: Any) : Mutation
+    data class Put(val key: String, val value: Any) : Single
 
     /** キーの削除。 */
-    data class Remove(val key: String) : Mutation
+    data class Remove(val key: String) : Single
 
     /** 全キーの削除。 */
-    data object Clear : Mutation
+    data object Clear : Single
+
+    /**
+     * 複数操作のアトミックな一括適用。ジャーナル上は 1 レコードなので、
+     * クラッシュ復旧（テール切り捨て）も他プロセスの差分リプレイもバッチ単位で働き、
+     * 途中状態がディスク上にも他プロセスからも観測されない。
+     * SharedPreferences の Editor（commit/apply）の書き込み単位に対応する。
+     *
+     * 適用・通知は [operations] の並び順どおり。
+     */
+    data class Batch(val operations: List<Single>) : Mutation
 
     /**
      * compaction がスナップショット列の末尾に書く境界マーカー。状態を変えず、通知もしない。

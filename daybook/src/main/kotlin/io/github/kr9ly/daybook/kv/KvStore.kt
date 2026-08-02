@@ -136,6 +136,27 @@ internal class KvStore private constructor(
         write(KvOperation.Clear)
     }
 
+    /**
+     * 複数操作を 1 ジャーナルレコードとしてアトミックに適用する。
+     *
+     * クラッシュ時は全操作が残るか全操作が消えるかの二択で、他プロセスからも
+     * 途中状態は見えない（[KvOperation.Batch] を参照）。適用・通知は並び順どおり。
+     * 空リストは何もしない。1 操作だけのときは素の操作としてジャーナルに書く
+     * （アトミック性は単一操作で自明のため、バッチ表現にする理由がない）。
+     *
+     * 値の制約は [put] と同じ。Set は防御的にコピーして保持する。
+     */
+    fun writeBatch(operations: List<KvOperation.Single>) {
+        val sanitized = operations.map { op ->
+            if (op is KvOperation.Put && op.value is Set<*>) op.copy(value = op.value.toSet()) else op
+        }
+        when (sanitized.size) {
+            0 -> return
+            1 -> write(sanitized[0])
+            else -> write(KvOperation.Batch(sanitized))
+        }
+    }
+
     /** 変更リスナーを登録する。強参照で保持し、[removeListener] まで解放しない。 */
     fun addListener(listener: KvChangeListener) {
         listeners.add(listener)
@@ -307,6 +328,13 @@ internal class KvStore private constructor(
      */
     private fun applyAndNotify(op: KvOperation.Mutation) {
         when (op) {
+            is KvOperation.Single -> applySingle(op)
+            is KvOperation.Batch -> op.operations.forEach(::applySingle)
+        }
+    }
+
+    private fun applySingle(op: KvOperation.Single) {
+        when (op) {
             is KvOperation.Put -> {
                 cache[op.key] = op.value
                 dispatch(op.key, op.value)
@@ -456,6 +484,7 @@ internal class KvStore private constructor(
                 is KvOperation.Put -> cache[op.key] = op.value
                 is KvOperation.Remove -> cache.remove(op.key)
                 KvOperation.Clear -> cache.clear()
+                is KvOperation.Batch -> op.operations.forEach { applyReplayed(cache, it) }
                 KvOperation.SnapshotBoundary -> {}
             }
         }

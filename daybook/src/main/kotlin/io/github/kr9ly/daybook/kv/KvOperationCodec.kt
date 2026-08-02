@@ -21,7 +21,12 @@ internal class KvEncodingException(message: String) : IOException(message)
  * REMOVE:            [op=2][key]
  * CLEAR:             [op=3]
  * SNAPSHOT_BOUNDARY: [op=4]
+ * BATCH:             [op=5][count 4B][単一操作...]
  * ```
+ *
+ * BATCH の要素は PUT / REMOVE / CLEAR の payload をそのまま並べたもの
+ * （各要素は自己区切りなので長さプレフィックスは持たない）。
+ * BATCH や SNAPSHOT_BOUNDARY を要素に含むバイト列は不正。
  *
  * 文字列は `[length 4B][UTF-8 bytes]`、`Set<String>` は `[count 4B][文字列...]`。
  * `Int`/`Long` はそのままのビット幅、`Float` は raw bits 4B、`Boolean` は 1B(0/1)。
@@ -33,6 +38,7 @@ internal object KvOperationCodec {
     private const val OP_REMOVE = 2
     private const val OP_CLEAR = 3
     private const val OP_SNAPSHOT_BOUNDARY = 4
+    private const val OP_BATCH = 5
 
     private const val TYPE_STRING = 1
     private const val TYPE_INT = 2
@@ -50,6 +56,35 @@ internal object KvOperationCodec {
     fun encode(op: KvOperation): ByteArray {
         val out = ByteArrayOutputStream()
         when (op) {
+            is KvOperation.Single -> writeSingle(out, op)
+            is KvOperation.Batch -> {
+                out.write(OP_BATCH)
+                writeInt(out, op.operations.size)
+                op.operations.forEach { writeSingle(out, it) }
+            }
+            KvOperation.SnapshotBoundary -> out.write(OP_SNAPSHOT_BOUNDARY)
+        }
+        return out.toByteArray()
+    }
+
+    /** payload を操作に復元する。読めないバイト列は [KvEncodingException]。 */
+    fun decode(payload: ByteArray): KvOperation {
+        val reader = Reader(payload)
+        val op = when (val tag = reader.readByte()) {
+            OP_BATCH -> {
+                val count = reader.readInt()
+                if (count < 0) throw KvEncodingException("negative batch count: $count")
+                KvOperation.Batch(List(count) { readSingle(reader) })
+            }
+            OP_SNAPSHOT_BOUNDARY -> KvOperation.SnapshotBoundary
+            else -> readSingleBody(reader, tag)
+        }
+        reader.requireConsumed()
+        return op
+    }
+
+    private fun writeSingle(out: ByteArrayOutputStream, op: KvOperation.Single) {
+        when (op) {
             is KvOperation.Put -> {
                 out.write(OP_PUT)
                 writeString(out, op.key)
@@ -60,26 +95,21 @@ internal object KvOperationCodec {
                 writeString(out, op.key)
             }
             KvOperation.Clear -> out.write(OP_CLEAR)
-            KvOperation.SnapshotBoundary -> out.write(OP_SNAPSHOT_BOUNDARY)
         }
-        return out.toByteArray()
     }
 
-    /** payload を操作に復元する。読めないバイト列は [KvEncodingException]。 */
-    fun decode(payload: ByteArray): KvOperation {
-        val reader = Reader(payload)
-        val op = when (val tag = reader.readByte()) {
-            OP_PUT -> {
-                val key = reader.readString()
-                KvOperation.Put(key, readValue(reader))
-            }
-            OP_REMOVE -> KvOperation.Remove(reader.readString())
-            OP_CLEAR -> KvOperation.Clear
-            OP_SNAPSHOT_BOUNDARY -> KvOperation.SnapshotBoundary
-            else -> throw KvEncodingException("unknown op tag: $tag")
+    private fun readSingle(reader: Reader): KvOperation.Single =
+        readSingleBody(reader, reader.readByte())
+
+    /** タグ既読の状態から単一操作の残りを読む。単一操作以外のタグは [KvEncodingException]。 */
+    private fun readSingleBody(reader: Reader, tag: Int): KvOperation.Single = when (tag) {
+        OP_PUT -> {
+            val key = reader.readString()
+            KvOperation.Put(key, readValue(reader))
         }
-        reader.requireConsumed()
-        return op
+        OP_REMOVE -> KvOperation.Remove(reader.readString())
+        OP_CLEAR -> KvOperation.Clear
+        else -> throw KvEncodingException("unknown op tag: $tag")
     }
 
     private fun writeValue(out: ByteArrayOutputStream, value: Any) {
