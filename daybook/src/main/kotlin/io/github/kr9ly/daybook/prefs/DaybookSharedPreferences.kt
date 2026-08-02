@@ -24,6 +24,8 @@ import java.util.WeakHashMap
  *
  * 意図的な非互換:
  *
+ * - getStringSet / getAll が返す Set は防御コピー（フレームワーク実装は内部 Set の
+ *   生参照を返し、呼び出し側の変更が以後の読み出しを黙って壊す既知の罠がある）
  * - clear の通知は OS バージョンによらず常に API 30+ 挙動（key = null を 1 回配送）
  * - apply の書き込みは非同期でなく同期（ジャーナル追記は軽量なため）。
  *   ディスク書き込みに失敗した場合、apply は編集を丸ごと破棄する
@@ -43,14 +45,17 @@ internal class DaybookSharedPreferences(
     /** 値は使わないマーカーの Unit（WeakHashMap を Set として使うため）。 */
     private val listeners = WeakHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Unit>()
 
-    override fun getAll(): Map<String, *> = store.getAll()
+    // Set は防御コピーで返す（クラス KDoc の意図的な非互換を参照）
+    override fun getAll(): Map<String, *> = store.getAll().mapValues { (_, value) ->
+        if (value is Set<*>) value.toSet() else value
+    }
 
     override fun getString(key: String, defValue: String?): String? =
         store.get(key) as String? ?: defValue
 
     @Suppress("UNCHECKED_CAST")
     override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? =
-        store.get(key) as Set<String>? ?: defValues
+        (store.get(key) as Set<String>?)?.toSet() ?: defValues
 
     override fun getInt(key: String, defValue: Int): Int =
         store.get(key) as Int? ?: defValue

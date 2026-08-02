@@ -80,8 +80,12 @@ public class PreferenceProperty<T> internal constructor(
 
     /**
      * Recovers from read failures with [handler], like `Flow.catch`: only the read path
-     * (including upstream [map] decoding) is covered — write failures are caller bugs
-     * and propagate as-is.
+     * is covered — write failures are caller bugs and propagate as-is.
+     *
+     * "Read failures" means any exception thrown while reading, not just an upstream
+     * [map] decode failure: a `ClassCastException` from reading an existing key with a
+     * mismatched factory type is recovered too. If you want type mismatches to stay
+     * loud, keep `catch` off the property and handle decode failures inside [map].
      *
      * ```kotlin
      * var theme by prefs.string("theme", default = Theme.SYSTEM.name)
@@ -128,17 +132,24 @@ public fun SharedPreferences.string(key: String, default: String): PreferencePro
 public fun SharedPreferences.string(key: String): PreferenceProperty<String?> =
     PreferenceProperty(this, key, { it.getString(key, null) }, { e, v -> e.putString(key, v) })
 
-/** Typed string-set entry under [key], returning [default] when absent. */
+/**
+ * Typed string-set entry under [key], returning [default] when absent.
+ *
+ * The [default] is copied at declaration, so mutating the caller's set afterwards never
+ * changes what absent-key reads return.
+ */
 public fun SharedPreferences.stringSet(
     key: String,
     default: Set<String>,
-): PreferenceProperty<Set<String>> =
-    PreferenceProperty(
+): PreferenceProperty<Set<String>> {
+    val fixedDefault = default.toSet()
+    return PreferenceProperty(
         this,
         key,
-        { it.getStringSet(key, null) ?: default },
+        { it.getStringSet(key, null) ?: fixedDefault },
         { e, v -> e.putStringSet(key, v) },
     )
+}
 
 /** Nullable string-set entry under [key]: absent reads as `null`, setting `null` removes the key. */
 public fun SharedPreferences.stringSet(key: String): PreferenceProperty<Set<String>?> =
