@@ -23,7 +23,7 @@ jobs:
 
       # JVM ユニットテストのみ（instrumented テストはエミュレータが要るので CI では走らせない）
       - name: Run unit tests with coverage
-        run: ./gradlew :daybook:koverXmlReportDebug :daybook-coroutines:koverXmlReportDebug
+        run: ./gradlew :daybook:koverXmlReportDebug :daybook-coroutines:koverXmlReportDebug :daybook-test:koverXmlReportDebug
 
       - name: Upload test reports
         if: failure()
@@ -33,9 +33,10 @@ jobs:
           path: |
             daybook/build/reports/tests/
             daybook-coroutines/build/reports/tests/
+            daybook-test/build/reports/tests/
 
       # カバレッジバッジは外部サービスを使わず、main への push 時に SVG を生成してリポジトリにコミットする。
-      # 2 モジュールの Kover XML から命令カバレッジを合算する
+      # 全モジュールの Kover XML から命令カバレッジを合算する
       - name: Generate coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -43,6 +44,7 @@ jobs:
           python3 .github/scripts/coverage_badge.py \
             daybook/build/reports/kover/reportDebug.xml \
             daybook-coroutines/build/reports/kover/reportDebug.xml \
+            daybook-test/build/reports/kover/reportDebug.xml \
             .github/badges/coverage.svg
 
       - name: Commit coverage badge

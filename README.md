@@ -1,33 +1,42 @@
 # daybook
 
-軽量・耐障害・マルチプロセス対応の Android 向け key-value ストア。
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.kr9ly/daybook)](https://central.sonatype.com/artifact/io.github.kr9ly/daybook)
+[![test](https://github.com/kr9ly/daybook/actions/workflows/test.yml/badge.svg)](https://github.com/kr9ly/daybook/actions/workflows/test.yml)
+![coverage](.github/badges/coverage.svg)
 
-インメモリキャッシュ + 追記ジャーナル方式。会計の daybook（仕訳帳）のように、
-すべての更新を一次記録として追記し、定期的に compaction（元帳への転記）で整理する。
+軽量・耐障害・マルチプロセス対応の Android 向け key-value ストア。`SharedPreferences` のドロップイン置き換え。
 
-## なぜ作るか
+インメモリキャッシュ + 追記ジャーナル方式。会計の daybook（仕訳帳）のように、すべての更新を一次記録として追記し、閾値を超えたら compaction（元帳への転記）で整理する。
+返り値は Android 標準の `SharedPreferences` 型なので、取得箇所を差し替えるだけで導入でき、やめるときも書き戻して無傷で戻れる。
 
-- **SharedPreferences**: `apply()` の書き込みがライフサイクル境界（`QueuedWork.waitToFinish()`）で
-  メインスレッドを同期ブロックし、ヘビーユースで ANR に至る。全量 XML 書き換えモデルのため
-  データ量に比例して悪化する。マルチプロセス非対応
-- **DataStore**: 読み出しが Flow + coroutine 前提で、単純な同期読みには重い
-- **MMKV**: 設計は理想に近いが C++ コアでポータビリティに欠け、採用しにくい状況がある
+- 読み出しは常に同期・メモリアクセスのみ: ロード待ちのブロックも、単純な読みに Flow を強制されることもない
+- 書き込みは追記 1 レコード: `apply()` がライフサイクル境界でメインスレッドを同期ブロックする framework の問題（QueuedWork 起因の ANR）が構造的に存在しない。データ量が増えても書き込みコストは変わらない
+- 壊れない: ジャーナルは CRC つきで、クラッシュ・電源断は壊れたテールの切り捨てで復旧する。Editor の commit はディスク上でアトミック
+- マルチプロセス対応: deprecated で信頼できない `MODE_MULTI_PROCESS` の、実際に動く代替
+- 相互マイグレーション: framework prefs からの取り込みも framework prefs への書き戻しも一級 API
+- 純 Kotlin/JVM: ネイティブコードなし
 
-## 設計の柱
+設定・フラグより大きなデータ（リスト・ドキュメント構造）は Room の領分。タスク寿命の作業中データには [jotter](https://github.com/kr9ly/jotter) を。
 
-- 純 Kotlin/JVM（ネイティブコードなし、将来的に KMP を視野）
-- 読み出しは常に同期・メモリアクセスのみ（Flow 不要、ロード待ちブロックなし）
-- 追記ジャーナル + CRC による耐障害性（壊れたテールの切り捨てで復旧）
-- ジャーナルをそのまま変更配信チャネルにしたマルチプロセス対応
-- `SharedPreferences` インターフェース実装によるドロップイン移行（import / export の相互マイグレーション）
-- 変更リスナーによるリアクティビティ（プロセス跨ぎの変更通知を含む）。Flow アダプタは薄い別モジュール
+## セットアップ
 
-詳細は [DESIGN.md](./DESIGN.md) を参照。
+Maven Central から取得できる（リポジトリに `mavenCentral()` が入っていればそのまま使える）。
+
+アプリモジュールの build.gradle.kts:
+
+```kotlin
+dependencies {
+    implementation("io.github.kr9ly:daybook:1.0.0")
+    implementation("io.github.kr9ly:daybook-coroutines:1.0.0") // Flow で受けたい場合のみ
+    testImplementation("io.github.kr9ly:daybook-test:1.0.0")   // ユニットテスト支援（任意）
+}
+```
+
+要件: minSdk 21+ / Kotlin 2.0+
 
 ## 使い方
 
-公開 API は Context 拡張の 2 つで、返り値は Android 標準の `SharedPreferences`。
-既存コードの移行は取得箇所の差し替えだけで済む。
+### 取得と読み書き
 
 ```kotlin
 // Context.getSharedPreferences(name, MODE_PRIVATE) の置き換え
@@ -36,12 +45,12 @@ val prefs = context.getDaybookSharedPreferences("settings")
 // PreferenceManager.getDefaultSharedPreferences(context) の置き換え
 val default = context.getDefaultDaybookSharedPreferences()
 
-// 複数プロセスから同じ名前を開くとき（deprecated な MODE_MULTI_PROCESS の動く代替）
-val shared = context.getDaybookSharedPreferences("shared", DaybookOptions(multiProcess = true))
+// 返り値は android.content.SharedPreferences そのもの。以降のコードは何も変わらない
+prefs.edit().putString("nickname", "alice").putInt("count", 1).apply()
+val nickname = prefs.getString("nickname", null)
 ```
 
-`SharedPreferences` の契約（Editor のバッチ、変更リスナー、defValue、同一 edit 内で clear が put を消さない等）は
-フレームワーク実装（AOSP SharedPreferencesImpl）の観測可能な挙動に合わせてある。
+`SharedPreferences` の契約（Editor のバッチ、変更リスナー、defValue、同一 edit 内で clear が put を消さない等）はフレームワーク実装（AOSP SharedPreferencesImpl）の観測可能な挙動に合わせてある。
 加えて Editor の commit/apply は 1 ジャーナルレコードとして書かれ、クラッシュ・他プロセスに対してアトミック。
 
 ### SharedPreferences からの移行
@@ -56,6 +65,16 @@ context.importAllSharedPreferencesIntoDaybook()                 // shared_prefs/
 context.exportDaybookToSharedPreferences("settings")            // フレームワーク側へ書き戻し（撤退・併走用）
 context.exportAllDaybookToSharedPreferences()                   // 一括書き戻し
 ```
+
+### マルチプロセス
+
+```kotlin
+// 複数プロセスから同じ名前を開くとき。全プロセスで同じフラグを渡す
+val shared = context.getDaybookSharedPreferences("shared", DaybookOptions(multiProcess = true))
+```
+
+書き込みはプロセス間ロックで直列化され、他プロセスの編集は自動的に見えるようになる。
+変更リスナーが発火するのは同一プロセス内の編集だけ（framework と同じ）。
 
 ### 型安全 API と Flow
 
@@ -98,20 +117,26 @@ val prefs = daybook.getSharedPreferences("settings")     // アプリのコー�
 repo.updateProfile("alice", avatar)
 
 // commit 粒度の書き込み記録: 「関連キーが 1 つの edit にまとまっているか」を直接検証できる
-val commit = daybook.commits("settings").single()
-assertEquals(setOf("name", "avatar"), commit.changes.keys)
+assertEquals(
+    listOf(RecordedCommit(clearRequested = false, changes = mapOf("name" to "alice", "avatar" to avatar))),
+    daybook.commits("settings"),
+)
 
 // 失敗注入: commit() == false / apply 破棄のエラーハンドリングをテストする
 daybook.failNextWrite("settings")
 assertFalse(prefs.edit().putString("name", "bob").commit())
 ```
 
-## Status
+## 挙動の要点
 
-実装済み: ジャーナル層、KV エンコード層、インメモリキャッシュ、compaction（世代方式）、
-マルチプロセス対応（実機検証済み）、SharedPreferences 互換レイヤー、相互マイグレーション、
-型安全 API、Flow アダプタ（daybook-coroutines）、テスト支援（daybook-test）。
-JVM テストは行・ブランチカバレッジ 100%、結合点は Instrumentation テストで実機検証。
-公開 API は 1.0.0 でレビュー・凍結済み（[API.md](./API.md)）。
+- 保存先は `filesDir/daybook/` で、フレームワークの `shared_prefs/` とは完全に別領域。取得箇所の差し替えがそのままデータソースの切り替えになる
+- 同一プロセス内では同じ名前に常に同一インスタンスを返す（framework と同じ）。同じ名前を異なる `multiProcess` フラグで開き直すと IllegalArgumentException
+- framework からの意図的な非互換が 3 つ。clear の通知は OS バージョンによらず常に API 30+ 挙動（key = null を 1 回）。apply の書き込みは非同期でなく同期で、失敗時は編集を丸ごと破棄する（メモリだけ更新された状態を作らない）。getStringSet / getAll が返す Set は防御コピー（内部 Set の生参照を返して以後の読み出しが黙って壊れる、framework 実装の既知の罠を踏襲しない）
+- ジャーナルが閾値（デフォルト 1 MiB）を超えると自動で compaction が走り、ファイルは際限なく育たない
+- 公開 API は 1.0.0 で凍結済み。全シグネチャの一覧は [API.md](./API.md)
 
-未了: Maven Central 公開。
+設計判断の詳細（ジャーナル形式・マルチプロセスの機構・耐久性契約・テスト戦略）と先行例（SharedPreferences / DataStore / MMKV）との比較は [DESIGN.md](./DESIGN.md) を参照。
+
+## ライセンス
+
+Apache License 2.0 — 詳細は [LICENSE](LICENSE) を参照。
