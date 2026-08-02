@@ -21,7 +21,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: ./gradlew :daybook:testDebugUnitTest :daybook-coroutines:testDebugUnitTest
+        run: ./gradlew :daybook:testDebugUnitTest :daybook-coroutines:testDebugUnitTest :daybook-test:testDebugUnitTest
 
       # Central Portal へのアップロードと公開承認まで自動で行う（タグ push で完結）
       - name: Publish to Maven Central
@@ -34,6 +34,7 @@ jobs:
           ./gradlew
           :daybook:publishAndReleaseToMavenCentral
           :daybook-coroutines:publishAndReleaseToMavenCentral
+          :daybook-test:publishAndReleaseToMavenCentral
 
       - name: Create GitHub Release
         env:
