@@ -18,7 +18,11 @@ internal class FileObserverJournalWatcherFactory : JournalWatcherFactory {
             MODIFY or CREATE or MOVED_TO or DELETE,
         ) {
             override fun onEvent(event: Int, path: String?) {
-                onChange()
+                // onEvent にはマスク外のイベントも届く（stopWatching 時の IN_IGNORED 等）。
+                // マスク対象だけに絞らないと close 後にもコールバックが発火する
+                if (event and (MODIFY or CREATE or MOVED_TO or DELETE) != 0) {
+                    onChange()
+                }
             }
         }
         observer.startWatching()

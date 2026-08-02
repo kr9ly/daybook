@@ -14,6 +14,14 @@ android {
     defaultConfig {
         minSdk = 21
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // プロセスキル系はエミュレータで flaky になりがちなため通常スイートから隔離する。
+        // -Pdaybook.processKillTests を付けるとキル系「だけ」を実行する（リトライ前提）
+        val annotation = "io.github.kr9ly.daybook.ProcessKillTest"
+        if (providers.gradleProperty("daybook.processKillTests").isPresent) {
+            testInstrumentationRunnerArguments["annotation"] = annotation
+        } else {
+            testInstrumentationRunnerArguments["notAnnotation"] = annotation
+        }
     }
 
     compileOptions {

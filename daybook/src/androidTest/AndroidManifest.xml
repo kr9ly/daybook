@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- マルチプロセステスト用のワーカー。別プロセスで KvStore を開いて相互読み書きする -->
+        <service
+            android:name="io.github.kr9ly.daybook.kv.MultiProcessWorkerService"
+            android:process=":daybookworker"
+            android:exported="false" />
+    </application>
+</manifest>
