@@ -1,6 +1,7 @@
 package io.github.kr9ly.daybook.kv
 
 import io.github.kr9ly.daybook.journal.FileSink
+import io.github.kr9ly.daybook.journal.JournalDirectory
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalSink
 import io.github.kr9ly.daybook.journal.SyncMode
@@ -26,6 +27,19 @@ internal fun interface KvChangeListener {
 }
 
 /**
+ * compaction の一時停止点。テストがここで例外を投げることで、
+ * 「compaction のこの位置でプロセスがクラッシュした」状況を決定的に注入する。
+ * フックが例外を投げた後の store は不定であり、開き直して復旧を検証する使い方をする。
+ */
+internal enum class CompactionPhase {
+    /** 新世代スナップショットを一時ファイルへ書き終え fsync した直後（rename 前）。 */
+    SNAPSHOT_WRITTEN,
+
+    /** 一時ファイルを正式な世代ファイルへ rename した直後（旧世代の削除・切り替え前）。 */
+    GENERATION_COMMITTED,
+}
+
+/**
  * インメモリキャッシュ付きの KV ストア。
  *
  * オープン時にジャーナル全体をリプレイして [ConcurrentHashMap] へ展開し、
@@ -36,13 +50,31 @@ internal fun interface KvChangeListener {
  * ジャーナルに追記され、そのまま通知される。「ジャーナルに適用された操作を通知する」
  * という単一の規則にすることで、将来のプロセス跨ぎ差分リプレイと通知経路を共有する。
  * Clear は消えた各キーへの (key, null) として配送される。
+ *
+ * ジャーナルが閾値を超えて育つと、現在のキャッシュを新世代ファイルへ書き出して
+ * アトミック rename で切り替える（世代方式 compaction）。compaction は表現の圧縮であり
+ * 状態を変えないため、変更通知は発生しない。
  */
 internal class KvStore private constructor(
-    private val journal: JournalFile,
+    private val directory: JournalDirectory,
+    private var generation: Long,
+    private var journal: JournalFile,
+    private val syncMode: SyncMode,
+    private val sinkFactory: (File) -> JournalSink,
+    private val compactionThreshold: Long,
+    private val compactionHook: (CompactionPhase) -> Unit,
     private val cache: ConcurrentHashMap<String, Any>,
     /** オープン時にジャーナルの壊れたテールを切り捨てて復旧したか。 */
     val recoveredFromCorruption: Boolean,
 ) : Closeable {
+
+    /**
+     * 直前の compaction 直後のジャーナルサイズ ≒ ライブデータのサイズ。
+     * ライブデータ自体が閾値を超えているとき、追記のたびに compaction が走る
+     * スラッシングを「前回の 2 倍に育つまで待つ」ことで防ぐ。
+     * オープン時は 0 — ごみだらけのジャーナルを開いた場合、最初の閾値超えで即 compaction する。
+     */
+    private var compactionBaseline = 0L
 
     private val writeLock = Any()
     private val listeners = CopyOnWriteArrayList<KvChangeListener>()
@@ -99,7 +131,48 @@ internal class KvStore private constructor(
         synchronized(writeLock) {
             journal.append(payload)
             applyAndNotify(op)
+            maybeCompact()
         }
+    }
+
+    private fun maybeCompact() {
+        if (journal.length < compactionThreshold) return
+        if (journal.length < 2 * compactionBaseline) return
+        compact()
+    }
+
+    /**
+     * 現在のキャッシュを新世代ジャーナルとして書き出し、アトミック rename で切り替える。
+     *
+     * 書き込みロック下で呼ばれるため、compaction 中の追記はプロセス内では起こらない
+     * （プロセス間の競合はマルチプロセス対応のスコープ）。状態は変化しないため通知もない。
+     *
+     * 電源断への安全性は「一時ファイルの fsync → rename 発行 → 旧世代の削除発行」の
+     * 順序で担保する（[JournalDirectory] の KDoc を参照）。rename 後は同じファイル
+     * ハンドルをそのまま使い続ける（rename でファイルの実体は変わらないため）。
+     */
+    private fun compact() {
+        val newGeneration = generation + 1
+        val temp = directory.tempFor(newGeneration)
+        temp.delete() // 過去に失敗した compaction の残骸があれば捨てる
+        val newJournal = JournalFile.open(temp, syncMode, sinkFactory)
+        try {
+            cache.forEach { (key, value) ->
+                newJournal.append(KvOperationCodec.encode(KvOperation.Put(key, value)))
+            }
+            newJournal.force()
+            compactionHook(CompactionPhase.SNAPSHOT_WRITTEN)
+            directory.commit(newGeneration)
+            compactionHook(CompactionPhase.GENERATION_COMMITTED)
+        } catch (e: Throwable) {
+            newJournal.close()
+            throw e
+        }
+        journal.close()
+        journal = newJournal
+        generation = newGeneration
+        directory.deleteOlderThan(newGeneration)
+        compactionBaseline = newJournal.length
     }
 
     /**
@@ -143,20 +216,34 @@ internal class KvStore private constructor(
     companion object {
 
         /**
-         * ジャーナルを開いてリプレイし、読み書き可能なストアを返す。
+         * ジャーナルサイズがこれを超えると compaction を検討する既定値。
+         * 上限しているのは実質オープン時のリプレイ時間（1 MiB ならミリ秒オーダー）。
+         */
+        const val DEFAULT_COMPACTION_THRESHOLD = 1L * 1024 * 1024
+
+        /**
+         * [directory] 内の現在世代のジャーナルを開いてリプレイし、読み書き可能なストアを返す。
+         *
+         * ジャーナルは `<name>.<世代番号>.journal` として保存され、閾値超えの compaction で
+         * 世代が進む。中断された compaction の残骸はこの時点で片付けられる。
          *
          * ジャーナルとして読めないファイルは
          * [io.github.kr9ly.daybook.journal.JournalFormatException]、
          * レコードが KV 操作として読めない場合は [KvEncodingException]。
          *
-         * [sinkFactory] はテストのクラッシュ注入用フック。
+         * [sinkFactory] と [compactionHook] はテストのクラッシュ注入用フック。
          */
         fun open(
-            file: File,
+            directory: File,
+            name: String = "daybook",
             syncMode: SyncMode = SyncMode.ASYNC,
+            compactionThreshold: Long = DEFAULT_COMPACTION_THRESHOLD,
             sinkFactory: (File) -> JournalSink = ::FileSink,
+            compactionHook: (CompactionPhase) -> Unit = {},
         ): KvStore {
-            val journal = JournalFile.open(file, syncMode, sinkFactory)
+            val journalDirectory = JournalDirectory(directory, name)
+            val generation = journalDirectory.resolveCurrentGeneration()
+            val journal = JournalFile.open(journalDirectory.fileFor(generation), syncMode, sinkFactory)
             val cache = ConcurrentHashMap<String, Any>()
             try {
                 journal.replayedRecords.forEach { payload ->
@@ -166,8 +253,16 @@ internal class KvStore private constructor(
                 journal.close()
                 throw e
             }
+            // 旧世代の削除は最新世代を開けてから（開けなかったとき直前の世代を道連れにしない）
+            journalDirectory.deleteOlderThan(generation)
             return KvStore(
+                directory = journalDirectory,
+                generation = generation,
                 journal = journal,
+                syncMode = syncMode,
+                sinkFactory = sinkFactory,
+                compactionThreshold = compactionThreshold,
+                compactionHook = compactionHook,
                 cache = cache,
                 recoveredFromCorruption = journal.recoveredFromCorruption,
             )

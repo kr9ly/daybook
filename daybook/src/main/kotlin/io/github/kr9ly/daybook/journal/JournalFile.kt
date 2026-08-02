@@ -48,7 +48,12 @@ internal class JournalFile private constructor(
     val replayedRecords: List<ByteArray>,
     /** オープン時に壊れたテールを切り捨てて復旧したか。 */
     val recoveredFromCorruption: Boolean,
+    initialLength: Long,
 ) : Closeable {
+
+    /** 現在のファイルサイズ（ヘッダ + 正常レコード列）。compaction の閾値判定用。 */
+    var length: Long = initialLength
+        private set
 
     /** レコードを末尾に追記する。SYNC モードでは追記ごとに fsync する。 */
     fun append(payload: ByteArray) {
@@ -62,9 +67,15 @@ internal class JournalFile private constructor(
         crc.update(buf.array(), 0, LENGTH_SIZE + payload.size)
         buf.putInt(crc.value.toInt())
         sink.write(buf.array())
+        length += buf.array().size
         if (syncMode == SyncMode.SYNC) {
             sink.force()
         }
+    }
+
+    /** これまでの追記を永続ストレージに同期する（fsync）。 */
+    fun force() {
+        sink.force()
     }
 
     override fun close() {
@@ -125,6 +136,7 @@ internal class JournalFile private constructor(
                 syncMode = syncMode,
                 replayedRecords = replay.records,
                 recoveredFromCorruption = replay.truncated,
+                initialLength = if (replay.validLength == 0L) HEADER_SIZE.toLong() else replay.validLength,
             )
         }
 

@@ -19,7 +19,10 @@ class KvStoreTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private fun storeFile(): File = File(tmp.root, "store.db")
+    private fun openStore(): KvStore = KvStore.open(tmp.root, "store")
+
+    private fun generationFile(generation: Long = 1): File =
+        File(tmp.root, "store.$generation.journal")
 
     /** 変更イベントを記録し、期待件数まで待てるリスナー。 */
     private class RecordingListener(expectedCount: Int) : KvChangeListener {
@@ -40,7 +43,7 @@ class KvStoreTest {
 
     @Test
     fun putAndGet_allSupportedTypes() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("string", "value")
             store.put("int", 42)
             store.put("long", 42L)
@@ -58,15 +61,23 @@ class KvStoreTest {
     }
 
     @Test
+    fun openWithDefaultName_usesDaybookFiles() {
+        KvStore.open(tmp.root).use { store ->
+            store.put("key", 1)
+        }
+        assertTrue(File(tmp.root, "daybook.1.journal").exists())
+    }
+
+    @Test
     fun getMissingKey_returnsNull() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             assertNull(store.get("missing"))
         }
     }
 
     @Test
     fun putSameKey_overwrites() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("key", "old")
             store.put("key", "new")
             assertEquals("new", store.get("key"))
@@ -75,20 +86,20 @@ class KvStoreTest {
 
     @Test
     fun putUnsupportedType_isRejectedWithoutJournaling() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             assertThrows(IllegalArgumentException::class.java) {
                 store.put("key", 3.0) // Double は非対応
             }
         }
         // 型検査は追記前に行われるため、ジャーナルに不正レコードは残らない
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             assertTrue(store.getAll().isEmpty())
         }
     }
 
     @Test
     fun remove_deletesKey() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("key", "value")
             store.remove("key")
             assertNull(store.get("key"))
@@ -98,7 +109,7 @@ class KvStoreTest {
 
     @Test
     fun clear_deletesAllKeys() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("a", 1)
             store.put("b", 2)
             store.clear()
@@ -108,7 +119,7 @@ class KvStoreTest {
 
     @Test
     fun contains_reflectsCurrentState() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             assertFalse(store.contains("key"))
             store.put("key", "value")
             assertTrue(store.contains("key"))
@@ -117,7 +128,7 @@ class KvStoreTest {
 
     @Test
     fun getAll_isSnapshotUnaffectedByLaterWrites() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("key", "value")
             val snapshot = store.getAll()
             store.put("key2", "value2")
@@ -128,7 +139,7 @@ class KvStoreTest {
 
     @Test
     fun putSet_storesDefensiveCopy() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val mutable = mutableSetOf("a")
             store.put("set", mutable)
             mutable.add("b")
@@ -140,13 +151,13 @@ class KvStoreTest {
 
     @Test
     fun reopen_restoresStateFromJournal() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("string", "value")
             store.put("int", 42)
             store.put("removed", "gone")
             store.remove("removed")
         }
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             assertEquals(
                 mapOf<String, Any>("string" to "value", "int" to 42),
                 store.getAll(),
@@ -157,24 +168,24 @@ class KvStoreTest {
 
     @Test
     fun reopen_replaysClear() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("before", 1)
             store.clear()
             store.put("after", 2)
         }
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             assertEquals(mapOf<String, Any>("after" to 2), store.getAll())
         }
     }
 
     @Test
     fun openWithCorruptedTail_recoversToLastGoodState() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("key", "value")
         }
         // 追記途中のクラッシュを模して中途半端なバイトを足す
-        storeFile().appendBytes(byteArrayOf(0, 0, 0, 5, 1, 2))
-        KvStore.open(storeFile()).use { store ->
+        generationFile().appendBytes(byteArrayOf(0, 0, 0, 5, 1, 2))
+        openStore().use { store ->
             assertTrue(store.recoveredFromCorruption)
             assertEquals("value", store.get("key"))
         }
@@ -182,20 +193,20 @@ class KvStoreTest {
 
     @Test
     fun openNonJournalFile_throwsFormatException() {
-        storeFile().writeBytes("not a journal".toByteArray())
+        generationFile().writeBytes("not a journal".toByteArray())
         assertThrows(JournalFormatException::class.java) {
-            KvStore.open(storeFile())
+            openStore()
         }
     }
 
     @Test
     fun openJournalWithUndecodableRecord_throwsEncodingException() {
         // CRC は正しいが KV 操作として読めないレコード（ジャーナル層は通る）
-        JournalFile.open(storeFile()).use { journal ->
+        JournalFile.open(generationFile()).use { journal ->
             journal.append(byteArrayOf(99))
         }
         assertThrows(KvEncodingException::class.java) {
-            KvStore.open(storeFile())
+            openStore()
         }
     }
 
@@ -203,7 +214,7 @@ class KvStoreTest {
 
     @Test
     fun listener_receivesPutWithNewValue() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val listener = RecordingListener(1)
             store.addListener(listener)
             store.put("key", "value")
@@ -214,7 +225,7 @@ class KvStoreTest {
 
     @Test
     fun listener_receivesRemoveWithNull() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("key", "value")
             val listener = RecordingListener(1)
             store.addListener(listener)
@@ -227,7 +238,7 @@ class KvStoreTest {
     @Test
     fun listener_receivesRemoveOfAbsentKey() {
         // 通知は状態差分でなく操作ベース: 存在しないキーの Remove も通知される
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val listener = RecordingListener(1)
             store.addListener(listener)
             store.remove("absent")
@@ -238,7 +249,7 @@ class KvStoreTest {
 
     @Test
     fun listener_receivesClearAsPerKeyNulls() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("a", 1)
             store.put("b", 2)
             val listener = RecordingListener(2)
@@ -254,7 +265,7 @@ class KvStoreTest {
 
     @Test
     fun listener_eventsArriveInWriteOrder() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val listener = RecordingListener(3)
             store.addListener(listener)
             store.put("key", 1)
@@ -270,7 +281,7 @@ class KvStoreTest {
 
     @Test
     fun multipleListeners_allReceiveEvents() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val first = RecordingListener(1)
             val second = RecordingListener(1)
             store.addListener(first)
@@ -284,7 +295,7 @@ class KvStoreTest {
 
     @Test
     fun removedListener_stopsReceivingEvents() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val removed = RecordingListener(1)
             val kept = RecordingListener(2)
             store.addListener(removed)
@@ -299,7 +310,7 @@ class KvStoreTest {
 
     @Test
     fun listenerAddedAfterWrite_doesNotReceivePastEvents() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.put("before", 1)
             val listener = RecordingListener(1)
             store.addListener(listener)
@@ -311,7 +322,7 @@ class KvStoreTest {
 
     @Test
     fun listener_canWriteBackToStoreWithoutDeadlock() {
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             val done = CountDownLatch(1)
             store.addListener { key, _ ->
                 if (key == "trigger") {
@@ -328,7 +339,7 @@ class KvStoreTest {
     @Test
     fun close_deliversAlreadyEnqueuedEvents() {
         val listener = RecordingListener(1)
-        KvStore.open(storeFile()).use { store ->
+        openStore().use { store ->
             store.addListener(listener)
             store.put("key", "value")
         }
