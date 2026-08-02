@@ -113,13 +113,13 @@ class DaybookMigrationTest {
     fun transparentImport_runsOnFirstCreationOnly() {
         seedFrameworkPrefs("settings", "key" to "value")
 
-        val prefs = context.getDaybookSharedPreferences("settings", importFromSharedPreferences = true)
+        val prefs = context.getDaybookSharedPreferences("settings", DaybookOptions(importFromSharedPreferences = true))
         assertEquals("value", prefs.getString("key", null))
 
         // プロセス再起動を模す: キャッシュ破棄 → フラグつき再オープンでも再取り込みされない
         prefs.edit().putString("key", "edited").commit()
         DaybookPreferencesCache.resetForTesting()
-        val reopened = context.getDaybookSharedPreferences("settings", importFromSharedPreferences = true)
+        val reopened = context.getDaybookSharedPreferences("settings", DaybookOptions(importFromSharedPreferences = true))
         assertEquals("edited", reopened.getString("key", null))
     }
 
@@ -128,7 +128,7 @@ class DaybookMigrationTest {
         // 取り込みはインスタンス生成時のみ: 生成後の編集をフラグつき再取得が上書きしない
         val prefs = context.getDaybookSharedPreferences("settings")
         seedFrameworkPrefs("settings", "key" to "framework")
-        val second = context.getDaybookSharedPreferences("settings", importFromSharedPreferences = true)
+        val second = context.getDaybookSharedPreferences("settings", DaybookOptions(importFromSharedPreferences = true))
         assertEquals(prefs, second)
         assertFalse(second.contains("key"))
     }

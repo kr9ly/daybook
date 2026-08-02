@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.kr9ly.daybook.DaybookPreferencesCache
 import io.github.kr9ly.daybook.exportAllDaybookToSharedPreferences
 import io.github.kr9ly.daybook.exportDaybookToSharedPreferences
+import io.github.kr9ly.daybook.DaybookOptions
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.importAllSharedPreferencesIntoDaybook
 import io.github.kr9ly.daybook.importSharedPreferencesIntoDaybook
@@ -58,7 +59,7 @@ class AdversarialMigrationTest {
         val framework = context.getSharedPreferences(name, Context.MODE_PRIVATE)
         framework.edit().putInt("a", 1).commit()
 
-        val prefs1 = context.getDaybookSharedPreferences(name, importFromSharedPreferences = true)
+        val prefs1 = context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = true))
         assertEquals(1, prefs1.getInt("a", -1))
 
         // ユーザーが取り込み後に daybook 側を編集する
@@ -70,7 +71,7 @@ class AdversarialMigrationTest {
         // プロセス内キャッシュをクリアして「再起動」を模す。ディスク上のマーカーは残る
         DaybookPreferencesCache.resetForTesting()
 
-        val prefs2 = context.getDaybookSharedPreferences(name, importFromSharedPreferences = true)
+        val prefs2 = context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = true))
 
         assertEquals("再取り込みされ元の値が上書きされてはならない", 1, prefs2.getInt("a", -1))
         assertEquals("取り込み後のユーザー編集が保持されていなければならない", 2, prefs2.getInt("b", -1))
@@ -93,7 +94,7 @@ class AdversarialMigrationTest {
         assertFalse(prefs1.contains("shouldNotAppear"))
 
         // 同一プロセスで同名を import フラグ付きで再取得 → キャッシュヒットのはず
-        val prefs2 = context.getDaybookSharedPreferences(name, importFromSharedPreferences = true)
+        val prefs2 = context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = true))
 
         assertFalse(
             "キャッシュヒット時はフラグを無視するはずなので取り込まれてはいけない",
@@ -109,10 +110,10 @@ class AdversarialMigrationTest {
     @Test(timeout = 10_000)
     fun transparentImport_flagMismatchOnCacheHit_doesNotThrow() {
         val name = uniqueName("flag_mismatch")
-        context.getDaybookSharedPreferences(name, importFromSharedPreferences = false)
+        context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = false))
 
         // 例外を投げないことそのものが期待値
-        context.getDaybookSharedPreferences(name, importFromSharedPreferences = true)
+        context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = true))
     }
 
     /**
@@ -135,7 +136,7 @@ class AdversarialMigrationTest {
         framework.edit().putInt("a", 42).putInt("late", 7).commit()
 
         // getDaybookSharedPreferences 経由でこの名前のインスタンスを初めて生成する
-        val prefs = context.getDaybookSharedPreferences(name, importFromSharedPreferences = true)
+        val prefs = context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = true))
 
         // マーカーが名前単位で共有されているなら、再取り込みは起きず a==1, late は存在しないはず
         assertEquals(

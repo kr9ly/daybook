@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.callbackFlow
  *
  * This is an event stream, not a state stream: unlike [PreferenceProperty.asFlow] it is
  * neither conflated nor deduplicated, and the buffer is unbounded so a slow collector
- * never drops a change.
+ * never drops a change. The flip side of the unbounded buffer: a collector that stays
+ * suspended while changes keep flowing accumulates them in memory, so cancel the flow
+ * when you stop consuming.
  *
  * Backed by [SharedPreferences.OnSharedPreferenceChangeListener], so it works against any
  * `SharedPreferences` implementation and shares its contract: change callbacks arrive on

@@ -37,7 +37,7 @@ val prefs = context.getDaybookSharedPreferences("settings")
 val default = context.getDefaultDaybookSharedPreferences()
 
 // 複数プロセスから同じ名前を開くとき（deprecated な MODE_MULTI_PROCESS の動く代替）
-val shared = context.getDaybookSharedPreferences("shared", multiProcess = true)
+val shared = context.getDaybookSharedPreferences("shared", DaybookOptions(multiProcess = true))
 ```
 
 `SharedPreferences` の契約（Editor のバッチ、変更リスナー、defValue、同一 edit 内で clear が put を消さない等）は
@@ -48,7 +48,7 @@ val shared = context.getDaybookSharedPreferences("shared", multiProcess = true)
 
 ```kotlin
 // 透過: 初回生成時に同名のフレームワーク prefs を一度だけ取り込む（再実行しても二重にならない）
-val prefs = context.getDaybookSharedPreferences("settings", importFromSharedPreferences = true)
+val prefs = context.getDaybookSharedPreferences("settings", DaybookOptions(importFromSharedPreferences = true))
 
 // 明示: 個別・一括の import / export
 context.importSharedPreferencesIntoDaybook("settings")          // デフォルトはソースを残す（戻れる保険）
@@ -112,5 +112,6 @@ assertFalse(prefs.edit().putString("name", "bob").commit())
 マルチプロセス対応（実機検証済み）、SharedPreferences 互換レイヤー、相互マイグレーション、
 型安全 API、Flow アダプタ（daybook-coroutines）、テスト支援（daybook-test）。
 JVM テストは行・ブランチカバレッジ 100%、結合点は Instrumentation テストで実機検証。
+公開 API は 1.0.0 でレビュー・凍結済み（[API.md](./API.md)）。
 
-未了: 公開 API の凍結レビュー、Maven Central 公開。
+未了: Maven Central 公開。

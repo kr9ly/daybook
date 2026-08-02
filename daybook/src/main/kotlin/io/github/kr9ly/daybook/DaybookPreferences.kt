@@ -7,6 +7,23 @@ import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 import java.io.File
 
 /**
+ * Options for opening a daybook store with [getDaybookSharedPreferences].
+ *
+ * Grouping the flags in one object keeps call sites explicit — flags are always
+ * spelled out by name — and lets future options arrive without touching the
+ * function signatures.
+ *
+ * @property multiProcess Enable cross-process write serialization and change propagation.
+ *   See [getDaybookSharedPreferences] for the contract.
+ * @property importFromSharedPreferences Copy the same-named framework preferences on
+ *   first creation. See [getDaybookSharedPreferences] for the exact semantics.
+ */
+public class DaybookOptions(
+    public val multiProcess: Boolean = false,
+    public val importFromSharedPreferences: Boolean = false,
+)
+
+/**
  * Returns a daybook-backed [SharedPreferences] for the given [name].
  *
  * Drop-in replacement for [Context.getSharedPreferences]: the returned instance follows the
@@ -20,7 +37,7 @@ import java.io.File
  * Data lives under `filesDir/daybook/` and is completely separate from the framework's
  * `shared_prefs/` storage; replacing the call site switches the data source.
  *
- * Set [multiProcess] to `true` when several processes of the app open the same [name]:
+ * Set [DaybookOptions.multiProcess] when several processes of the app open the same [name]:
  * writes are then serialized with an inter-process lock and edits from other processes
  * become visible automatically (a working replacement for the deprecated and unreliable
  * `Context.MODE_MULTI_PROCESS`). All processes must agree on the flag for a given [name];
@@ -28,31 +45,35 @@ import java.io.File
  * [IllegalArgumentException]. Change listeners are only invoked for edits made in the
  * same process, matching the framework behavior.
  *
+ * Set [DaybookOptions.importFromSharedPreferences] to migrate transparently — see below.
+ *
  * One intentional deviation from the framework: clearing via [SharedPreferences.Editor.clear]
  * always notifies listeners once with a `null` key (the API 30+ behavior), regardless of the
  * OS version the app runs on.
  *
- * Set [importFromSharedPreferences] to `true` to migrate transparently: the first time the
+ * With [DaybookOptions.importFromSharedPreferences] the migration is transparent: the first time the
  * store is created, all entries of the framework `SharedPreferences` with the same [name]
  * are copied in atomically, and a marker makes the import run only once — later opens
  * (and app restarts) never re-import, so edits made after the migration are preserved.
  * The framework file is left untouched; use [importSharedPreferencesIntoDaybook] with
  * `deleteSource = true` if you want it cleared. The import only happens when this call
- * creates the instance — on a cache hit the flag has no effect.
+ * creates the instance — on a cache hit the flag has no effect. Note the contrast with
+ * the multiProcess flag, which must agree across all callers and throws on mismatch:
+ * the import flag only describes creation-time behavior and is silently ignored afterwards.
  *
  * @param name Preferences file name. Must be non-empty and must not contain `/`.
- * @param multiProcess Enable cross-process write serialization and change propagation.
- * @param importFromSharedPreferences Copy the same-named framework preferences on first creation.
+ * @param options Store options; the default opens a single-process store without import.
+ * @throws IllegalArgumentException if [name] is empty or contains `/`, or if the store is
+ *   already open in this process with a different [DaybookOptions.multiProcess] value.
  */
 public fun Context.getDaybookSharedPreferences(
     name: String,
-    multiProcess: Boolean = false,
-    importFromSharedPreferences: Boolean = false,
+    options: DaybookOptions = DaybookOptions(),
 ): SharedPreferences = DaybookPreferencesCache.getOrCreate(
     applicationContext,
     name,
-    multiProcess,
-    importFromSharedPreferences,
+    options.multiProcess,
+    options.importFromSharedPreferences,
 )
 
 /**
@@ -60,18 +81,13 @@ public fun Context.getDaybookSharedPreferences(
  *
  * Uses the same naming convention as `PreferenceManager.getDefaultSharedPreferences`
  * (`<packageName>_preferences`), so the logical store lines up one-to-one with the
- * framework's default preferences — with [importFromSharedPreferences] the framework's
- * default preferences migrate in transparently. See [getDaybookSharedPreferences] for
- * the contract and the flags.
+ * framework's default preferences — with [DaybookOptions.importFromSharedPreferences]
+ * the framework's default preferences migrate in transparently.
+ * See [getDaybookSharedPreferences] for the contract and the options.
  */
 public fun Context.getDefaultDaybookSharedPreferences(
-    multiProcess: Boolean = false,
-    importFromSharedPreferences: Boolean = false,
-): SharedPreferences = getDaybookSharedPreferences(
-    "${packageName}_preferences",
-    multiProcess,
-    importFromSharedPreferences,
-)
+    options: DaybookOptions = DaybookOptions(),
+): SharedPreferences = getDaybookSharedPreferences("${packageName}_preferences", options)
 
 /**
  * name → インスタンスのプロセス内キャッシュ。

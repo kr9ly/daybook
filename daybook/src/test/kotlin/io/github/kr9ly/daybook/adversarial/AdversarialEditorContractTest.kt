@@ -3,6 +3,7 @@ package io.github.kr9ly.daybook.adversarial
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import io.github.kr9ly.daybook.DaybookPreferencesCache
+import io.github.kr9ly.daybook.DaybookOptions
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.importSharedPreferencesIntoDaybook
 import org.junit.After
@@ -60,9 +61,9 @@ class AdversarialEditorContractTest {
     @Test
     fun reopeningSameName_withDifferentMultiProcess_throwsIAE() {
         val name = uniqueName()
-        context.getDaybookSharedPreferences(name, multiProcess = false)
+        context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = false))
         assertThrows(IllegalArgumentException::class.java) {
-            context.getDaybookSharedPreferences(name, multiProcess = true)
+            context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = true))
         }
     }
 
@@ -70,9 +71,9 @@ class AdversarialEditorContractTest {
     @Test
     fun reopeningSameName_multiProcessTrueFirst_thenFalse_throwsIAE() {
         val name = uniqueName()
-        context.getDaybookSharedPreferences(name, multiProcess = true)
+        context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = true))
         assertThrows(IllegalArgumentException::class.java) {
-            context.getDaybookSharedPreferences(name, multiProcess = false)
+            context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = false))
         }
     }
 
@@ -80,8 +81,8 @@ class AdversarialEditorContractTest {
     @Test
     fun reopeningSameName_sameMultiProcess_isFine() {
         val name = uniqueName()
-        val a = context.getDaybookSharedPreferences(name, multiProcess = true)
-        val b = context.getDaybookSharedPreferences(name, multiProcess = true)
+        val a = context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = true))
+        val b = context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = true))
         assertSame(a, b)
     }
 
@@ -484,7 +485,7 @@ class AdversarialEditorContractTest {
         framework.edit().putString("frameworkKey", "frameworkValue").commit()
 
         // import なしで daybook 側を先に生成（インスタンスをキャッシュに載せる）
-        val prefs = context.getDaybookSharedPreferences(name, importFromSharedPreferences = false)
+        val prefs = context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = false))
         assertFalse(prefs.contains("frameworkKey"))
 
         // 独自にキーを書いておく
@@ -492,7 +493,7 @@ class AdversarialEditorContractTest {
 
         // 同名で import = true を指定して再取得してもキャッシュヒットのはずなので、
         // 取り込みが後追いで走ってはいけない
-        val again = context.getDaybookSharedPreferences(name, importFromSharedPreferences = true)
+        val again = context.getDaybookSharedPreferences(name, DaybookOptions(importFromSharedPreferences = true))
         assertSame(prefs, again)
         assertFalse(
             "キャッシュヒット時に import が後から走ってしまっている",

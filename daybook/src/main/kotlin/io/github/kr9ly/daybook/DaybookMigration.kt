@@ -53,6 +53,10 @@ public fun Context.importAllSharedPreferencesIntoDaybook(
  * `SharedPreferences.Editor` API only. Use this as a rollback path before abandoning
  * daybook, or to expose current values to code that still reads the framework file
  * directly — in the latter case, re-export after each edit you want visible there.
+ *
+ * If no daybook store named [name] exists yet, the export runs against its empty state:
+ * the framework preferences end up cleared, and an empty store is created on disk as a
+ * side effect. Use [exportAllDaybookToSharedPreferences] to touch only existing stores.
  */
 public fun Context.exportDaybookToSharedPreferences(name: String) {
     DaybookMigration.export(applicationContext, name)

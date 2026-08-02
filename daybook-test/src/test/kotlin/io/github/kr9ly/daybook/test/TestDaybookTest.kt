@@ -3,6 +3,7 @@ package io.github.kr9ly.daybook.test
 import android.content.SharedPreferences
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -185,6 +186,30 @@ class TestDaybookTest {
     @Test
     fun commits_unknownName_isEmpty() {
         assertEquals(emptyList<RecordedCommit>(), daybook.commits("never-touched"))
+    }
+
+    @Test
+    fun recordedCommit_hasValueSemantics() {
+        val prefs = daybook.getSharedPreferences("settings")
+        prefs.edit().clear().putInt("a", 1).commit()
+
+        // 期待値を構築して assertEquals で直接比較できる（changes の順序は等価性に関与しない）
+        assertEquals(
+            listOf(RecordedCommit(clearRequested = true, changes = mapOf("a" to 1))),
+            daybook.commits("settings"),
+        )
+        assertEquals(
+            RecordedCommit(true, mapOf("a" to 1)).hashCode(),
+            daybook.commits("settings").single().hashCode(),
+        )
+    }
+
+    @Test
+    fun recordedCommit_inequality() {
+        val commit = RecordedCommit(clearRequested = false, changes = mapOf("a" to 1))
+        assertNotEquals(commit, RecordedCommit(clearRequested = true, changes = mapOf("a" to 1)))
+        assertNotEquals(commit, RecordedCommit(clearRequested = false, changes = mapOf("a" to 2)))
+        assertNotEquals(commit, "not a commit" as Any)
     }
 
     @Test

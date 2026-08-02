@@ -24,7 +24,8 @@ import java.io.IOException
  * This makes assertions deterministic without pumping a main looper.
  *
  * Each `TestDaybook` is an isolated world: create one per test (or per test class) and
- * throw it away — there is no global state and no reset to remember. Within one instance
+ * throw it away — instances start no threads and hold no files or native resources, so
+ * there is nothing to close, no global state, and no reset to remember. Within one instance
  * the production contract holds: the same [name] returns the same object, and reopening
  * a name with a different `multiProcess` flag throws [IllegalArgumentException].
  * The flag has no other effect in-memory, where everything is one process anyway.
@@ -106,7 +107,9 @@ public class TestDaybook(private val packageName: String = "test") {
      * Edits that change nothing do not consume the injection, because production
      * never reaches the disk for them.
      *
-     * May be called before the preferences are first obtained.
+     * May be called before the preferences are first obtained. Calling it again while
+     * a failure is already pending keeps a single pending failure — injections do not
+     * queue up.
      */
     public fun failNextWrite(name: String) {
         synchronized(lock) {
@@ -143,12 +146,27 @@ public class TestDaybook(private val packageName: String = "test") {
  * This is daybook's unit of atomicity: everything in one commit becomes visible together
  * or not at all. Asserting on the recorded commits therefore verifies not just what the
  * code under test wrote, but whether related keys were written atomically in one edit.
+ *
+ * Value semantics: two commits are equal when [clearRequested] and [changes] are equal
+ * (map equality — the edit order [changes] preserves does not participate), so expected
+ * commits can be constructed and compared with `assertEquals` directly.
  */
 public class RecordedCommit(
     /** Whether the edit requested `clear()`. Always written, even when the state was already empty. */
     public val clearRequested: Boolean,
-    /** Effective changes in edit order. A `null` value is a remove. */
+    /**
+     * Effective changes, with a `null` value meaning a remove.
+     * The map is always an insertion-ordered implementation reflecting edit order —
+     * a guarantee this property adds on top of the plain `Map` interface.
+     */
     public val changes: Map<String, Any?>,
 ) {
+    override fun equals(other: Any?): Boolean =
+        other is RecordedCommit &&
+            other.clearRequested == clearRequested &&
+            other.changes == changes
+
+    override fun hashCode(): Int = 31 * clearRequested.hashCode() + changes.hashCode()
+
     override fun toString(): String = "RecordedCommit(clearRequested=$clearRequested, changes=$changes)"
 }

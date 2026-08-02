@@ -200,9 +200,11 @@ framework の prefs の上でも同じに動くため、「型安全層と Flow 
 独自インターフェースを公開しないことが「互換」の一番強い表現で、既存コードの移行は取得箇所の差し替えだけで済む。
 コア（`KvStore` 以下）は internal のまま公開せず、API 凍結の対象を最小に保つ。
 
-- 取得口: `Context.getDaybookSharedPreferences(name, multiProcess, importFromSharedPreferences)` と `Context.getDefaultDaybookSharedPreferences(...)`。デフォルト名はフレームワークと同じ `<packageName>_preferences` 規約
+- 取得口: `Context.getDaybookSharedPreferences(name, options)` と `Context.getDefaultDaybookSharedPreferences(options)`。デフォルト名はフレームワークと同じ `<packageName>_preferences` 規約
+- フラグは `DaybookOptions(multiProcess, importFromSharedPreferences)` に集約: 隣接する Boolean 引数の位置渡しによる取り違えを構造的に防ぎ（API 凍結レビューの指摘）、将来のオプション追加も関数シグネチャに触れず受けられる
 - インスタンスキャッシュ: フレームワークと同じく同名は常に同一インスタンスを返す（別の取得口から登録したリスナーにも届く前提）。同名を異なる `multiProcess` で再取得したときは黙殺せず IllegalArgumentException（フレームワークの mode 黙殺は踏襲しない）
 - mode 引数は踏襲しない: MODE_WORLD_* は API 24+ で死んでおり、MODE_MULTI_PROCESS は「動作が信頼できない」として deprecated。daybook の `multiProcess` フラグはこの穴を動く形で埋める対応物
+- 公開表面は 1.0.0 でレビュー・凍結し、シグネチャ一覧を API.md としてチェックイン。機械検査（binary-compatibility-validator）は AGP 9 の built-in Kotlin が KGP のプラグイン ID を適用しないため検出できず、外付け KGP も AGP 9 では適用不能（BaseExtension 削除）— ツールチェーンが対応し次第導入する
 - Editor のアトミック性: commit/apply は 1 バッチ = 1 ジャーナルレコード（`KvOperation.Batch`）として書く。CRC とテール切り捨て復旧がレコード単位で働くため、クラッシュしても他プロセスから見ても「全適用か全消失か」の二択になる。フレームワークの「同一 edit 内で clear は put を消さない」等の細部は AOSP の SharedPreferencesImpl と突き合わせて揃えた
 - 変更通知: 実際に状態が変わったキーだけを、変更列の逆順で、メインスレッドに配送する（AOSP と同じ）。同値 put と不在キーの remove は通知しない。通知の算出は互換アダプタが commit 時に行い、コアの操作ベース通知とは分離する
 - 互換リスナーの参照保持: フレームワークと同じ WeakHashMap。register して参照を持たないコード（register-and-forget）はフレームワーク上ではリークしないのが実効的な挙動で、強参照に変えるとそこに新種の永続リークが生まれるため、既知の罠を既知のまま残す（コアの `KvChangeListener` は従来どおり強参照）

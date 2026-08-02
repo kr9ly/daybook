@@ -27,6 +27,9 @@ import kotlin.reflect.KProperty
  * batch multiple keys atomically through the plain [SharedPreferences.edit] when needed.
  * Works against any `SharedPreferences` implementation — the framework one as well as
  * daybook's — so typed access can be adopted before or after migrating the backing store.
+ *
+ * Instances are immutable; thread safety of reads and writes follows the backing
+ * [SharedPreferences] contract.
  */
 public class PreferenceProperty<T> internal constructor(
     /** The preferences instance this property reads from and writes to. */
@@ -67,8 +70,9 @@ public class PreferenceProperty<T> internal constructor(
      * ```
      *
      * Conversion failures (e.g. a stored value that [decode] no longer understands)
-     * propagate as-is; catch inside [decode] and return a fallback if you want
-     * lenient reads.
+     * propagate as-is; chain [catch] after `map` to recover with a fallback if you
+     * want lenient reads. Failures of [encode] on write also propagate as-is — they
+     * are caller bugs, and [catch] deliberately covers the read path only.
      */
     public fun <R> map(decode: (T) -> R, encode: (R) -> T): PreferenceProperty<R> =
         PreferenceProperty(

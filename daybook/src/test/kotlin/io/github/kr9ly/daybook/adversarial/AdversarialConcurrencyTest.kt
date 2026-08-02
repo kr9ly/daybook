@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import io.github.kr9ly.daybook.DaybookPreferencesCache
+import io.github.kr9ly.daybook.DaybookOptions
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.int
 import org.junit.After
@@ -105,7 +106,7 @@ class AdversarialConcurrencyTest {
                         barrier.await()
                         val mp = i % 2 == 0
                         try {
-                            successes[i] = context.getDaybookSharedPreferences(name, multiProcess = mp)
+                            successes[i] = context.getDaybookSharedPreferences(name, DaybookOptions(multiProcess = mp))
                         } catch (t: Throwable) {
                             failures[i] = t
                         }

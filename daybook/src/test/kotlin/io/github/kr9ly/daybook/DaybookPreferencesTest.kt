@@ -46,16 +46,16 @@ class DaybookPreferencesTest {
 
     @Test
     fun sameNameWithDifferentMultiProcessFlag_isRejected() {
-        context.getDaybookSharedPreferences("settings", multiProcess = false)
+        context.getDaybookSharedPreferences("settings", DaybookOptions(multiProcess = false))
         assertThrows(IllegalArgumentException::class.java) {
-            context.getDaybookSharedPreferences("settings", multiProcess = true)
+            context.getDaybookSharedPreferences("settings", DaybookOptions(multiProcess = true))
         }
     }
 
     @Test
     fun multiProcessName_reopensWithSameFlag() {
-        val first = context.getDaybookSharedPreferences("mp", multiProcess = true)
-        val second = context.getDaybookSharedPreferences("mp", multiProcess = true)
+        val first = context.getDaybookSharedPreferences("mp", DaybookOptions(multiProcess = true))
+        val second = context.getDaybookSharedPreferences("mp", DaybookOptions(multiProcess = true))
         assertSame(first, second)
     }
 
