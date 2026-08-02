@@ -24,6 +24,43 @@
 
 詳細は [DESIGN.md](./DESIGN.md) を参照。
 
+## 使い方
+
+公開 API は Context 拡張の 2 つで、返り値は Android 標準の `SharedPreferences`。
+既存コードの移行は取得箇所の差し替えだけで済む。
+
+```kotlin
+// Context.getSharedPreferences(name, MODE_PRIVATE) の置き換え
+val prefs = context.getDaybookSharedPreferences("settings")
+
+// PreferenceManager.getDefaultSharedPreferences(context) の置き換え
+val default = context.getDefaultDaybookSharedPreferences()
+
+// 複数プロセスから同じ名前を開くとき（deprecated な MODE_MULTI_PROCESS の動く代替）
+val shared = context.getDaybookSharedPreferences("shared", multiProcess = true)
+```
+
+`SharedPreferences` の契約（Editor のバッチ、変更リスナー、defValue、同一 edit 内で clear が put を消さない等）は
+フレームワーク実装（AOSP SharedPreferencesImpl）の観測可能な挙動に合わせてある。
+加えて Editor の commit/apply は 1 ジャーナルレコードとして書かれ、クラッシュ・他プロセスに対してアトミック。
+
+### SharedPreferences からの移行
+
+```kotlin
+// 透過: 初回生成時に同名のフレームワーク prefs を一度だけ取り込む（再実行しても二重にならない）
+val prefs = context.getDaybookSharedPreferences("settings", importFromSharedPreferences = true)
+
+// 明示: 個別・一括の import / export
+context.importSharedPreferencesIntoDaybook("settings")          // デフォルトはソースを残す（戻れる保険）
+context.importAllSharedPreferencesIntoDaybook()                 // shared_prefs/ を一括取り込み
+context.exportDaybookToSharedPreferences("settings")            // フレームワーク側へ書き戻し（撤退・併走用）
+context.exportAllDaybookToSharedPreferences()                   // 一括書き戻し
+```
+
 ## Status
 
-設計フェーズ。実装未着手。
+実装済み: ジャーナル層、KV エンコード層、インメモリキャッシュ、compaction（世代方式）、
+マルチプロセス対応（実機検証済み）、SharedPreferences 互換レイヤー、相互マイグレーション。
+JVM テストは行・ブランチカバレッジ 100%、結合点は Instrumentation テストで実機検証。
+
+未了: 公開 API の凍結レビュー、Flow アダプタ（daybook-coroutines）、Maven Central 公開。

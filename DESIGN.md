@@ -147,29 +147,40 @@
 - **配送スレッド**: デフォルトは専用ディスパッチスレッド。UI 向けに main thread
   ディスパッチのオプションを用意。リスナー内で daybook を再操作してもデッドロックしない
   ことを保証する（配送はロック外で行う）
-- **参照保持**: 明示的な register/unregister で強参照。SharedPreferences の
-  WeakHashMap 保持（GC でリスナーが黙って消える有名な罠）は踏襲しない
+- **参照保持**: コアのリスナーは明示的な register/unregister で強参照。SharedPreferences の
+  WeakHashMap 保持（GC でリスナーが黙って消える有名な罠）はコアでは踏襲しない
+  （互換レイヤーの `OnSharedPreferenceChangeListener` は例外的に踏襲する — 互換レイヤー節を参照）
 - **互換リスナー**: `SharedPreferences` インターフェース実装の一部として
   `OnSharedPreferenceChangeListener` もサポート（ドロップイン移行のため）
 - **上位 API**: Flow アダプタ（`fun <T> watch(key): Flow<T>` 相当）は別モジュールの
   薄いラッパーとして提供。コアは coroutine 非依存を保つ
+
+### SharedPreferences 互換レイヤー（公開 API 表面）
+
+公開 API は Context 拡張の 2 つだけに絞り、返り値は Android 標準の `SharedPreferences` 型にする。
+独自インターフェースを公開しないことが「互換」の一番強い表現で、既存コードの移行は取得箇所の差し替えだけで済む。
+コア（`KvStore` 以下）は internal のまま公開せず、API 凍結の対象を最小に保つ。
+
+- 取得口: `Context.getDaybookSharedPreferences(name, multiProcess, importFromSharedPreferences)` と `Context.getDefaultDaybookSharedPreferences(...)`。デフォルト名はフレームワークと同じ `<packageName>_preferences` 規約
+- インスタンスキャッシュ: フレームワークと同じく同名は常に同一インスタンスを返す（別の取得口から登録したリスナーにも届く前提）。同名を異なる `multiProcess` で再取得したときは黙殺せず IllegalArgumentException（フレームワークの mode 黙殺は踏襲しない）
+- mode 引数は踏襲しない: MODE_WORLD_* は API 24+ で死んでおり、MODE_MULTI_PROCESS は「動作が信頼できない」として deprecated。daybook の `multiProcess` フラグはこの穴を動く形で埋める対応物
+- Editor のアトミック性: commit/apply は 1 バッチ = 1 ジャーナルレコード（`KvOperation.Batch`）として書く。CRC とテール切り捨て復旧がレコード単位で働くため、クラッシュしても他プロセスから見ても「全適用か全消失か」の二択になる。フレームワークの「同一 edit 内で clear は put を消さない」等の細部は AOSP の SharedPreferencesImpl と突き合わせて揃えた
+- 変更通知: 実際に状態が変わったキーだけを、変更列の逆順で、メインスレッドに配送する（AOSP と同じ）。同値 put と不在キーの remove は通知しない。通知の算出は互換アダプタが commit 時に行い、コアの操作ベース通知とは分離する
+- 互換リスナーの参照保持: フレームワークと同じ WeakHashMap。register して参照を持たないコード（register-and-forget）はフレームワーク上ではリークしないのが実効的な挙動で、強参照に変えるとそこに新種の永続リークが生まれるため、既知の罠を既知のまま残す（コアの `KvChangeListener` は従来どおり強参照）
+- 意図的な非互換: clear の通知は OS バージョンによらず常に API 30+ 挙動（key=null を 1 回）。apply は非同期でなく同期書き込みで、失敗時はメモリだけ更新された状態を作らず編集ごと破棄する。null キーは受け付けない（フレームワークでは XML 書き出しが壊れる未定義挙動）
 
 ### SharedPreferences との相互マイグレーション
 
 導入（import）だけでなく撤退（export）も一級のスコープとする。
 「試しに入れて、合わなければ無傷で戻れる」ことが採用障壁を下げる。
 
-- **import**: 初回オープン時に旧 XML を読んでジャーナルに流し込むインポータを提供。
-  `SharedPreferences` インターフェースを実装するため、呼び出し側は DI の差し替えのみ
-- **export**: daybook の現在状態を `SharedPreferences` に書き戻すエクスポータを提供。
-  自前で XML を書かず、公式 API（`edit()` + `commit()`）経由で書き戻すことで
-  フォーマット互換の責任を負わない
-- **型システムの制約**: 相互変換を保証するため、daybook の値型は SharedPreferences が
-  サポートする型に揃える — `String` / `Int` / `Long` / `Float` / `Boolean` / `Set<String>`。
-  独自型の追加（`ByteArray` 等）は往復可能性を壊すため、やるなら v2 以降で
-  「export 不可」を型レベルで明示できる形を考えてから
-- 移行の冪等性: import は「未取り込みのときだけ実行」のマーカーを持ち、
-  再実行しても二重取り込みしない
+- 透過経路: `getDaybookSharedPreferences` の `importFromSharedPreferences` フラグで、初回のインスタンス生成時に同名のフレームワーク prefs を一度だけ取り込む。取り込みが走るのは生成時（ユーザー編集の前）だけで、キャッシュヒット時はフラグを無視する — 生成後の編集を後からの取り込みが上書きする事故を構造的に排除する
+- 明示プリミティブ: `importSharedPreferencesIntoDaybook(name, deleteSource)` / `exportDaybookToSharedPreferences(name)` と、その一括版 `importAll` / `exportAll`（対象になった名前のリストを返す）。export は一括が基本形
+- import の冪等性: daybook ディレクトリ内のサイドカーマーカー `<name>.imported` で「未取り込みのときだけ実行」を表す。予約キーでなくサイドカーにするのは getAll の結果（互換 API の観測可能な状態）を汚さないため。取り込み自体は 1 バッチでアトミック
+- import はマージ上書き: 同名キーはフレームワーク値で上書きし、daybook 固有のキーは残す。ソースの XML はデフォルトで残す（ロールバック保険を優先。`deleteSource = true` で取り込み後にクリア）
+- export は複製: `edit()` + `commit()` の公式 API 経由で clear → putAll し、フレームワーク側を daybook の現在状態と完全一致させる。自前で XML を書かないことでフォーマット互換の責任を負わない
+- 連続双方向同期は提供しない: ループと競合解決の泥沼になり互換保証を汚すため。フレームワークの prefs を直読みする SDK と併走したい場合は、見せたい編集の後に明示 export を呼ぶエスケープハッチで対応する
+- 型システムの制約: 相互変換を保証するため、daybook の値型は SharedPreferences がサポートする型に揃える — `String` / `Int` / `Long` / `Float` / `Boolean` / `Set<String>`。独自型の追加（`ByteArray` 等）は往復可能性を壊すため、やるなら v2 以降で「export 不可」を型レベルで明示できる形を考えてから
 
 ## テスト戦略
 
