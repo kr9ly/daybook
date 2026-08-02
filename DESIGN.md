@@ -180,6 +180,11 @@ framework の prefs の上でも同じに動くため、「型安全層と Flow 
   デリゲートも asFlow もそのまま効く（distinctUntilChanged は変換後の equals）。
   デフォルトは格納側の世界で宣言し、map は不在時の挙動に関与しない純粋な値変換。
   decode の失敗はポリシーを持たずそのまま伝播（互換 API の ClassCastException と同じ fail-fast の系譜）
+- `changesAsFlow()`: prefs 全体の変更キーのイベント流（`Flow<String?>`、clear は null — API 30+ の互換層契約に乗る）。
+  状態流の `asFlow()` と違い初期発火なし・conflate も distinctUntilChanged もなし
+  （合流させると変更キーの取りこぼしになる）。バッファは無制限で遅い collector でも変更を落とさない。
+  既存リスナーがある場所には Flow アダプタをセットで用意するという方針の一環。
+  コアの `KvChangeListener`（値つき・クロスプロセス）の Flow 化は公開裁定と同じく 1.x に先送り
 - 読み取りの回復: `catch(handler)` を Flow の catch と同型のコンビネータとして提供。
   読み取り経路（上流の map の decode を含む）だけを包み、書き込み（encode）の失敗は
   呼び出し側のバグとしてそのまま投げる。デフォルトは fail-fast、回復はチェーンで明示的に opt-in

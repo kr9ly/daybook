@@ -81,6 +81,7 @@ class Settings(prefs: SharedPreferences) {
 
 settings.darkMode = true                                 // putBoolean + apply
 settings.fontScalePref.asFlow()                          // Flow<Float>（daybook-coroutines）。collect 時に現在値を発火
+prefs.changesAsFlow()                                    // Flow<String?>（daybook-coroutines）。変更キーのイベント流、clear は null
 ```
 
 ## Status
