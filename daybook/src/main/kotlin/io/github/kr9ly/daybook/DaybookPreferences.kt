@@ -32,25 +32,46 @@ import java.io.File
  * always notifies listeners once with a `null` key (the API 30+ behavior), regardless of the
  * OS version the app runs on.
  *
+ * Set [importFromSharedPreferences] to `true` to migrate transparently: the first time the
+ * store is created, all entries of the framework `SharedPreferences` with the same [name]
+ * are copied in atomically, and a marker makes the import run only once — later opens
+ * (and app restarts) never re-import, so edits made after the migration are preserved.
+ * The framework file is left untouched; use [importSharedPreferencesIntoDaybook] with
+ * `deleteSource = true` if you want it cleared. The import only happens when this call
+ * creates the instance — on a cache hit the flag has no effect.
+ *
  * @param name Preferences file name. Must be non-empty and must not contain `/`.
  * @param multiProcess Enable cross-process write serialization and change propagation.
+ * @param importFromSharedPreferences Copy the same-named framework preferences on first creation.
  */
 public fun Context.getDaybookSharedPreferences(
     name: String,
     multiProcess: Boolean = false,
-): SharedPreferences = DaybookPreferencesCache.getOrCreate(applicationContext, name, multiProcess)
+    importFromSharedPreferences: Boolean = false,
+): SharedPreferences = DaybookPreferencesCache.getOrCreate(
+    applicationContext,
+    name,
+    multiProcess,
+    importFromSharedPreferences,
+)
 
 /**
  * Returns the daybook-backed [SharedPreferences] under the default name.
  *
  * Uses the same naming convention as `PreferenceManager.getDefaultSharedPreferences`
  * (`<packageName>_preferences`), so the logical store lines up one-to-one with the
- * framework's default preferences. See [getDaybookSharedPreferences] for the contract
- * and the [multiProcess] flag.
+ * framework's default preferences — with [importFromSharedPreferences] the framework's
+ * default preferences migrate in transparently. See [getDaybookSharedPreferences] for
+ * the contract and the flags.
  */
 public fun Context.getDefaultDaybookSharedPreferences(
     multiProcess: Boolean = false,
-): SharedPreferences = getDaybookSharedPreferences("${packageName}_preferences", multiProcess)
+    importFromSharedPreferences: Boolean = false,
+): SharedPreferences = getDaybookSharedPreferences(
+    "${packageName}_preferences",
+    multiProcess,
+    importFromSharedPreferences,
+)
 
 /**
  * name → インスタンスのプロセス内キャッシュ。
@@ -69,26 +90,61 @@ internal object DaybookPreferencesCache {
 
     private val entries = HashMap<String, Entry>()
 
-    fun getOrCreate(context: Context, name: String, multiProcess: Boolean): SharedPreferences {
-        require(name.isNotEmpty()) { "name must not be empty" }
-        require(!name.contains('/')) { "name must not contain '/': $name" }
+    /** daybook の全ストアが置かれるディレクトリ。framework の shared_prefs/ とは別領域。 */
+    fun daybookDir(context: Context): File = File(context.filesDir, "daybook")
+
+    fun getOrCreate(
+        context: Context,
+        name: String,
+        multiProcess: Boolean,
+        importFromSharedPreferences: Boolean,
+    ): SharedPreferences {
+        validateName(name)
         synchronized(entries) {
             entries[name]?.let { existing ->
                 require(existing.multiProcess == multiProcess) {
                     "\"$name\" is already open with multiProcess=${existing.multiProcess}; " +
                         "all callers must use the same flag for the same name"
                 }
+                // 取り込みはインスタンス生成時のみ。生成後に走らせると生成以降の編集を
+                // 上書きしうるため、キャッシュヒット時はフラグを無視する
                 return existing.prefs
             }
             val store = KvStore.open(
-                directory = File(context.filesDir, "daybook"),
+                directory = daybookDir(context),
                 name = name,
                 multiProcess = multiProcess,
             )
+            if (importFromSharedPreferences) {
+                DaybookMigration.importInto(context, name, store, deleteSource = false)
+            }
             val prefs = DaybookSharedPreferences(store)
             entries[name] = Entry(prefs, store, multiProcess)
             return prefs
         }
+    }
+
+    /**
+     * name のストアに対して [body] を実行する（マイグレーション用）。
+     * キャッシュ済みならそのストア、未オープンなら一時的に開いて閉じる。
+     * 全体を entries のロック下で行い、[getOrCreate] や他のマイグレーションと直列化する。
+     */
+    fun <T> withStore(context: Context, name: String, body: (KvStore) -> T): T {
+        validateName(name)
+        synchronized(entries) {
+            entries[name]?.let { return body(it.store) }
+            val store = KvStore.open(directory = daybookDir(context), name = name)
+            return try {
+                body(store)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    private fun validateName(name: String) {
+        require(name.isNotEmpty()) { "name must not be empty" }
+        require(!name.contains('/')) { "name must not contain '/': $name" }
     }
 
     /** テスト専用: キャッシュを空にし、開いていたストアを閉じる。 */
