@@ -73,17 +73,18 @@ class KvStoreCompactionTest {
         openStore().use { store ->
             store.put("trigger", 1)
         }
-        // 新世代にはライブなエントリの Put だけが残る
+        // 新世代にはライブなエントリの Put + 末尾の境界マーカーだけが残る
         val records = JournalFile.open(generationFile(2)).use { it.replayedRecords }
         val ops = records.map { KvOperationCodec.decode(it) }
+        assertEquals(KvOperation.SnapshotBoundary, ops.last())
         assertEquals(
             setOf<KvOperation>(
                 KvOperation.Put("keep", "value"),
                 KvOperation.Put("trigger", 1),
             ),
-            ops.toSet(),
+            ops.dropLast(1).toSet(),
         )
-        assertEquals(2, ops.size)
+        assertEquals(3, ops.size)
     }
 
     @Test

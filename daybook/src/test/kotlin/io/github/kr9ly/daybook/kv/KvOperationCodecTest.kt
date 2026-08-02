@@ -79,6 +79,11 @@ class KvOperationCodecTest {
     }
 
     @Test
+    fun snapshotBoundary_roundTrip() {
+        assertRoundTrip(KvOperation.SnapshotBoundary)
+    }
+
+    @Test
     fun keyWithMultibyteCharacters_roundTrip() {
         assertRoundTrip(KvOperation.Put("キー🔑", 1))
         assertRoundTrip(KvOperation.Remove("キー🔑"))

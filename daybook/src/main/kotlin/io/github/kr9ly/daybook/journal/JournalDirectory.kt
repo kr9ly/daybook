@@ -34,6 +34,9 @@ internal class JournalDirectory(private val dir: File, private val name: String)
     /** 世代番号に対応する compaction 書き出し先の一時ファイル。 */
     fun tempFor(generation: Long): File = File(dir, "$name.$generation$TEMP_SUFFIX")
 
+    /** プロセス間排他用の固定名ロックファイル。世代ファイルと違い rename されない。 */
+    fun lockFile(): File = File(dir, "$name.lock")
+
     /**
      * 現在の世代番号を決定する。
      *

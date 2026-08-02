@@ -1,6 +1,8 @@
 package io.github.kr9ly.daybook.journal
 
 import java.io.File
+import java.nio.ByteBuffer
+import java.util.zip.CRC32
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -174,7 +176,85 @@ class JournalFileTest {
         }
     }
 
-    // --- 別物ファイルの保護 ---
+    // --- 差分リード（他プロセスの追記分） ---
+
+    /** ジャーナルのレコード 1 件ぶんのバイト列（[length][payload][crc32]）を組み立てる。 */
+    private fun encodeRecord(payload: ByteArray): ByteArray {
+        val buf = ByteBuffer.allocate(4 + payload.size + 4)
+        buf.putInt(payload.size)
+        buf.put(payload)
+        val crc = CRC32()
+        crc.update(buf.array(), 0, 4 + payload.size)
+        buf.putInt(crc.value.toInt())
+        return buf.array()
+    }
+
+    @Test
+    fun readNewRecords_returnsOtherHandleAppendsIncrementally() {
+        val file = journalFile()
+        JournalFile.open(file).use { reader ->
+            // 別ハンドル = 他プロセスの追記の模擬
+            JournalFile.open(file).use { writer ->
+                writer.append(byteArrayOf(1))
+                writer.append(byteArrayOf(2, 2))
+            }
+            assertRecords(listOf(byteArrayOf(1), byteArrayOf(2, 2)), reader.readNewRecords())
+            assertTrue(reader.readNewRecords().isEmpty()) // 消費済み
+            JournalFile.open(file).use { it.append(byteArrayOf(3)) }
+            assertRecords(listOf(byteArrayOf(3)), reader.readNewRecords())
+        }
+    }
+
+    @Test
+    fun readNewRecords_doesNotReturnOwnAppends() {
+        JournalFile.open(journalFile()).use { journal ->
+            journal.append(byteArrayOf(1))
+            assertTrue(journal.readNewRecords().isEmpty())
+        }
+    }
+
+    @Test
+    fun readNewRecords_advancesLengthToConsumedBoundary() {
+        val file = journalFile()
+        JournalFile.open(file).use { reader ->
+            JournalFile.open(file).use { it.append(byteArrayOf(1, 1, 1)) }
+            reader.readNewRecords()
+            assertEquals(file.length(), reader.length)
+        }
+    }
+
+    @Test
+    fun readNewRecords_incompleteTail_isKeptUntilComplete() {
+        val file = journalFile()
+        JournalFile.open(file).use { reader ->
+            val record = encodeRecord(byteArrayOf(7, 7, 7))
+            // 書き込み途中の状態を 1 バイトずつ再現する
+            for (cut in 1 until record.size) {
+                file.writeBytes(file.readBytes().copyOfRange(0, 8)) // ヘッダだけに戻す
+                file.appendBytes(record.copyOfRange(0, cut))
+                assertTrue("cut=$cut", reader.readNewRecords().isEmpty())
+            }
+            // 完成したら読める。切り捨ては起きていない
+            file.appendBytes(record.copyOfRange(record.size - 1, record.size))
+            assertRecords(listOf(byteArrayOf(7, 7, 7)), reader.readNewRecords())
+        }
+    }
+
+    @Test
+    fun readNewRecords_stopsBeforeInvalidTailWithoutTruncating() {
+        val file = journalFile()
+        JournalFile.open(file).use { reader ->
+            JournalFile.open(file).use { it.append(byteArrayOf(1)) }
+            // 完全な形だが CRC が合わないテール（書き込み途中のゴミ）を続ける
+            val garbage = encodeRecord(byteArrayOf(9)).also { it[it.size - 1]++ }
+            file.appendBytes(garbage)
+            val sizeBefore = file.length()
+
+            assertRecords(listOf(byteArrayOf(1)), reader.readNewRecords())
+            assertTrue(reader.readNewRecords().isEmpty()) // 不正テールの手前で待つ
+            assertEquals(sizeBefore, file.length()) // 切り捨てはしない
+        }
+    }
 
     @Test
     fun foreignFile_throwsInsteadOfSilentlyOverwriting() {

@@ -1,8 +1,12 @@
 package io.github.kr9ly.daybook.kv
 
 import io.github.kr9ly.daybook.journal.DirectorySync
+import io.github.kr9ly.daybook.journal.FileInterProcessLock
+import io.github.kr9ly.daybook.journal.FileObserverJournalWatcherFactory
 import io.github.kr9ly.daybook.journal.FileSink
+import io.github.kr9ly.daybook.journal.InterProcessLock
 import io.github.kr9ly.daybook.journal.JournalDirectory
+import io.github.kr9ly.daybook.journal.JournalWatcherFactory
 import io.github.kr9ly.daybook.journal.defaultDirectorySync
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalSink
@@ -56,6 +60,13 @@ internal enum class CompactionPhase {
  * ジャーナルが閾値を超えて育つと、現在のキャッシュを新世代ファイルへ書き出して
  * アトミック rename で切り替える（世代方式 compaction）。compaction は表現の圧縮であり
  * 状態を変えないため、変更通知は発生しない。
+ *
+ * マルチプロセスモード（open の multiProcess）では、追記ジャーナルがそのまま
+ * プロセス間の変更配信チャネルになる。他プロセスの追記は watcher の検知で差分リプレイされ、
+ * 自プロセスの書き込みと同じ [applyAndNotify] に合流する。書き込み排他は
+ * 「プロセス内 writeLock → プロセス間ロック」の二段構えで、追記の前に必ず
+ * 他プロセス分をキャッチアップする。検知の非同期性で残る「書いた直後の別プロセス読み」の
+ * ウィンドウには [readFresh] を逃げ道として用意する。
  */
 internal class KvStore private constructor(
     private val directoryFile: File,
@@ -67,6 +78,8 @@ internal class KvStore private constructor(
     private val directorySync: DirectorySync,
     private val compactionThreshold: Long,
     private val compactionHook: (CompactionPhase) -> Unit,
+    /** マルチプロセスモードのときだけ非 null。 */
+    private val interProcessLock: InterProcessLock?,
     private val cache: ConcurrentHashMap<String, Any>,
     /** オープン時にジャーナルの壊れたテールを切り捨てて復旧したか。 */
     val recoveredFromCorruption: Boolean,
@@ -81,6 +94,11 @@ internal class KvStore private constructor(
     private var compactionBaseline = 0L
 
     private val writeLock = Any()
+    private var watcher: Closeable? = null
+
+    /** close 後の watcher イベントを無視するためのフラグ。writeLock 下で読み書きする。 */
+    private var closed = false
+
     private val listeners = CopyOnWriteArrayList<KvChangeListener>()
     private val dispatcher: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "daybook-dispatch").apply { isDaemon = true }
@@ -128,14 +146,109 @@ internal class KvStore private constructor(
         listeners.remove(listener)
     }
 
-    private fun write(op: KvOperation) {
+    /**
+     * 強一貫読み出し。
+     *
+     * マルチプロセスモードでは、変更検知の非同期性により「別プロセスが書いた直後の
+     * 読み出しが古い値を返す」ウィンドウが原理的に残る。この API はジャーナルを確認して
+     * 遅れを取り込んでから読むことで、呼び出し時点までに完了した書き込みを保証する。
+     * シングルプロセスモードでは [get] と同じ。
+     */
+    fun readFresh(key: String): Any? {
+        if (interProcessLock != null) {
+            synchronized(writeLock) {
+                interProcessLock.withLock { catchUp() }
+            }
+        }
+        return cache[key]
+    }
+
+    private fun write(op: KvOperation.Mutation) {
         // encode はロック外でも安全だが、型検査（IllegalArgumentException）を
         // 追記前に済ませるため append より先に呼ぶ
         val payload = KvOperationCodec.encode(op)
         synchronized(writeLock) {
-            journal.append(payload)
-            applyAndNotify(op)
-            maybeCompact()
+            withProcessLock {
+                if (interProcessLock != null) {
+                    // 追記先を最新に合わせる（他プロセスの compaction・追記の取り込み）
+                    catchUp()
+                }
+                journal.append(payload)
+                applyAndNotify(op)
+                maybeCompact()
+            }
+        }
+    }
+
+    /** マルチプロセスモードならプロセス間ロックを取って [body] を実行する。 */
+    private fun <T> withProcessLock(body: () -> T): T {
+        val lock = interProcessLock ?: return body()
+        return lock.withLock(body)
+    }
+
+    /**
+     * 他プロセスの書き込みを取り込む。writeLock とプロセス間ロックの下で呼ぶ。
+     *
+     * 世代が進んでいなければ現ジャーナルの差分リプレイ（操作ベース通知）、
+     * 進んでいれば新世代への開き直し（[switchGeneration]）。
+     */
+    private fun catchUp() {
+        val latest = directory.resolveCurrentGeneration()
+        if (latest == generation) {
+            journal.readNewRecords()
+                .map(KvOperationCodec::decode)
+                .filterIsInstance<KvOperation.Mutation>()
+                .forEach(::applyAndNotify)
+        } else {
+            switchGeneration(latest)
+        }
+    }
+
+    /**
+     * 他プロセスの compaction で進んだ世代へ開き直す。
+     *
+     * 新世代の中身は「スナップショット（境界マーカーまで）+ その後の追記」。
+     * スナップショットは状態の再表現であり、操作ベースで通知すると全キーへ偽 Put が
+     * 飛ぶため、無音で状態を再構築して自キャッシュとの差分だけを (key, newValue) で
+     * 通知する。マーカー以降は通常の操作ベース通知に戻る。
+     */
+    private fun switchGeneration(newGeneration: Long) {
+        val newJournal = JournalFile.open(directory.fileFor(newGeneration), syncMode, sinkFactory)
+        journal.close()
+        journal = newJournal
+        generation = newGeneration
+        compactionBaseline = newJournal.length // ≒ スナップショットサイズ（直後の追記込みの近似）
+
+        val ops = newJournal.replayedRecords.map(KvOperationCodec::decode)
+        val boundary = ops.indexOfFirst { it is KvOperation.SnapshotBoundary }
+        // マーカーがないファイル（compaction を経ていない世代）は全体をスナップショット扱い
+        val snapshotOps = if (boundary >= 0) ops.take(boundary) else ops
+        val tailOps = if (boundary >= 0) ops.drop(boundary + 1) else emptyList()
+
+        val rebuilt = HashMap<String, Any>()
+        snapshotOps.forEach { applyReplayed(rebuilt, it) }
+        cache.keys.filterNot(rebuilt::containsKey).forEach { key ->
+            cache.remove(key)
+            dispatch(key, null)
+        }
+        rebuilt.forEach { (key, value) ->
+            if (cache[key] != value) {
+                cache[key] = value
+                dispatch(key, value)
+            }
+        }
+        tailOps.filterIsInstance<KvOperation.Mutation>().forEach(::applyAndNotify)
+    }
+
+    /** 検知層を起動する。open の最後（store の構築完了後）に呼ばれる。 */
+    private fun startWatching(watcherFactory: JournalWatcherFactory, lock: InterProcessLock) {
+        watcher = watcherFactory.watch(directoryFile) {
+            // 検知機構のスレッドから呼ばれる。close 後のイベントは無視する
+            synchronized(writeLock) {
+                if (!closed) {
+                    lock.withLock { catchUp() }
+                }
+            }
         }
     }
 
@@ -164,6 +277,9 @@ internal class KvStore private constructor(
             cache.forEach { (key, value) ->
                 newJournal.append(KvOperationCodec.encode(KvOperation.Put(key, value)))
             }
+            // 境界マーカー: 遅れて開き直したプロセスが「ここまではスナップショット」と
+            // 判別するために書く（KvOperation.SnapshotBoundary の KDoc を参照）
+            newJournal.append(KvOperationCodec.encode(KvOperation.SnapshotBoundary))
             newJournal.force()
             compactionHook(CompactionPhase.SNAPSHOT_WRITTEN)
             directory.commit(newGeneration)
@@ -189,7 +305,7 @@ internal class KvStore private constructor(
      * ロック内で enqueue することで配送順序を書き込み順序に一致させる
      * （配送自体は専用スレッド上、つまりロック外で行われる）。
      */
-    private fun applyAndNotify(op: KvOperation) {
+    private fun applyAndNotify(op: KvOperation.Mutation) {
         when (op) {
             is KvOperation.Put -> {
                 cache[op.key] = op.value
@@ -218,8 +334,14 @@ internal class KvStore private constructor(
 
     /** enqueue 済みの通知は配送してから配送スレッドを止め、ジャーナルを閉じる。 */
     override fun close() {
+        synchronized(writeLock) {
+            if (closed) return
+            closed = true
+            watcher?.close()
+            interProcessLock?.close()
+            journal.close()
+        }
         dispatcher.shutdown()
-        journal.close()
     }
 
     companion object {
@@ -240,18 +362,60 @@ internal class KvStore private constructor(
          * [io.github.kr9ly.daybook.journal.JournalFormatException]、
          * レコードが KV 操作として読めない場合は [KvEncodingException]。
          *
+         * [multiProcess] を有効にすると、プロセス間ロックによる書き込み排他と
+         * watcher による他プロセス変更の検知・差分リプレイが働く（クラス KDoc を参照）。
+         * オープン時の復旧（テール切り捨て・世代解決）もプロセス間ロック下で行われる。
+         *
          * [sinkFactory] と [compactionHook] はテストのクラッシュ注入用フック。
+         * [lockFactory] と [watcherFactory] は「1 JVM 内で複数プロセスを模す」
+         * JVM テスト用の注入点（実 FileLock / FileObserver は Instrumentation テストで検証）。
          */
         fun open(
             directory: File,
             name: String = "daybook",
             syncMode: SyncMode = SyncMode.ASYNC,
+            multiProcess: Boolean = false,
             compactionThreshold: Long = DEFAULT_COMPACTION_THRESHOLD,
             sinkFactory: (File) -> JournalSink = ::FileSink,
             directorySync: DirectorySync = defaultDirectorySync(),
             compactionHook: (CompactionPhase) -> Unit = {},
+            lockFactory: (File) -> InterProcessLock = ::FileInterProcessLock,
+            watcherFactory: JournalWatcherFactory = FileObserverJournalWatcherFactory(),
         ): KvStore {
             val journalDirectory = JournalDirectory(directory, name)
+            if (!multiProcess) {
+                return openLocked(
+                    directory, journalDirectory, syncMode, compactionThreshold,
+                    sinkFactory, directorySync, compactionHook, interProcessLock = null,
+                )
+            }
+            directory.mkdirs() // ロックファイルの置き場所を先に確保する
+            val lock = lockFactory(journalDirectory.lockFile())
+            val store = try {
+                lock.withLock {
+                    openLocked(
+                        directory, journalDirectory, syncMode, compactionThreshold,
+                        sinkFactory, directorySync, compactionHook, interProcessLock = lock,
+                    )
+                }
+            } catch (e: Throwable) {
+                lock.close()
+                throw e
+            }
+            store.startWatching(watcherFactory, lock)
+            return store
+        }
+
+        private fun openLocked(
+            directory: File,
+            journalDirectory: JournalDirectory,
+            syncMode: SyncMode,
+            compactionThreshold: Long,
+            sinkFactory: (File) -> JournalSink,
+            directorySync: DirectorySync,
+            compactionHook: (CompactionPhase) -> Unit,
+            interProcessLock: InterProcessLock?,
+        ): KvStore {
             val generation = journalDirectory.resolveCurrentGeneration()
             val journal = JournalFile.open(journalDirectory.fileFor(generation), syncMode, sinkFactory)
             val cache = ConcurrentHashMap<String, Any>()
@@ -281,16 +445,18 @@ internal class KvStore private constructor(
                 directorySync = directorySync,
                 compactionThreshold = compactionThreshold,
                 compactionHook = compactionHook,
+                interProcessLock = interProcessLock,
                 cache = cache,
                 recoveredFromCorruption = journal.recoveredFromCorruption,
             )
         }
 
-        private fun applyReplayed(cache: ConcurrentHashMap<String, Any>, op: KvOperation) {
+        private fun applyReplayed(cache: MutableMap<String, Any>, op: KvOperation) {
             when (op) {
                 is KvOperation.Put -> cache[op.key] = op.value
                 is KvOperation.Remove -> cache.remove(op.key)
                 KvOperation.Clear -> cache.clear()
+                KvOperation.SnapshotBoundary -> {}
             }
         }
     }

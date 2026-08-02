@@ -2,7 +2,9 @@ package io.github.kr9ly.daybook.journal
 
 import java.io.Closeable
 import java.io.File
-import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 
 /**
  * ジャーナルの書き込み先。
@@ -22,28 +24,37 @@ internal interface JournalSink : Closeable {
     fun truncate(size: Long)
 }
 
-/** 実ファイルへの書き込み。 */
+/**
+ * 実ファイルへの書き込み。
+ *
+ * O_APPEND で開くため、書き込みは常にその時点の実ファイル末尾に落ちる。
+ * 他プロセスが追記した後でも自ハンドルの位置ずれによる上書きが構造的に起こらない
+ * （マルチプロセスの追記は排他ロック下で直列化されるが、その上の安全網）。
+ */
 internal class FileSink(file: File) : JournalSink {
-    private val raf = RandomAccessFile(file, "rw")
-
-    init {
-        raf.seek(raf.length())
-    }
+    private val channel = FileChannel.open(
+        file.toPath(),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+        StandardOpenOption.APPEND,
+    )
 
     override fun write(data: ByteArray) {
-        raf.write(data)
+        val buf = ByteBuffer.wrap(data)
+        while (buf.hasRemaining()) {
+            channel.write(buf)
+        }
     }
 
     override fun force() {
-        raf.fd.sync()
+        channel.force(true)
     }
 
     override fun truncate(size: Long) {
-        raf.setLength(size)
-        raf.seek(size)
+        channel.truncate(size)
     }
 
     override fun close() {
-        raf.close()
+        channel.close()
     }
 }

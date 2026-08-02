@@ -17,9 +17,10 @@ internal class KvEncodingException(message: String) : IOException(message)
  *
  * payload 形式:
  * ```
- * PUT:    [op=1][key][type 1B][value]
- * REMOVE: [op=2][key]
- * CLEAR:  [op=3]
+ * PUT:               [op=1][key][type 1B][value]
+ * REMOVE:            [op=2][key]
+ * CLEAR:             [op=3]
+ * SNAPSHOT_BOUNDARY: [op=4]
  * ```
  *
  * 文字列は `[length 4B][UTF-8 bytes]`、`Set<String>` は `[count 4B][文字列...]`。
@@ -31,6 +32,7 @@ internal object KvOperationCodec {
     private const val OP_PUT = 1
     private const val OP_REMOVE = 2
     private const val OP_CLEAR = 3
+    private const val OP_SNAPSHOT_BOUNDARY = 4
 
     private const val TYPE_STRING = 1
     private const val TYPE_INT = 2
@@ -58,6 +60,7 @@ internal object KvOperationCodec {
                 writeString(out, op.key)
             }
             KvOperation.Clear -> out.write(OP_CLEAR)
+            KvOperation.SnapshotBoundary -> out.write(OP_SNAPSHOT_BOUNDARY)
         }
         return out.toByteArray()
     }
@@ -72,6 +75,7 @@ internal object KvOperationCodec {
             }
             OP_REMOVE -> KvOperation.Remove(reader.readString())
             OP_CLEAR -> KvOperation.Clear
+            OP_SNAPSHOT_BOUNDARY -> KvOperation.SnapshotBoundary
             else -> throw KvEncodingException("unknown op tag: $tag")
         }
         reader.requireConsumed()

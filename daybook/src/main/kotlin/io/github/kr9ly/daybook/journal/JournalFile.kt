@@ -3,6 +3,7 @@ package io.github.kr9ly.daybook.journal
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.util.zip.CRC32
 
@@ -42,6 +43,11 @@ internal class JournalFormatException(message: String) : IOException(message)
  * そのレコード以降（壊れたテール）を切り捨てて最後の正常状態に復旧する。
  */
 internal class JournalFile private constructor(
+    /**
+     * 差分リード用の読み取りハンドル。パスではなく fd を持ち続けることで、
+     * compaction の rename（inode は変わらない）の後も同じファイルを読み続けられる。
+     */
+    private val reader: RandomAccessFile,
     private val sink: JournalSink,
     private val syncMode: SyncMode,
     /** オープン時のリプレイで得た正常レコード列。 */
@@ -78,7 +84,28 @@ internal class JournalFile private constructor(
         sink.force()
     }
 
+    /**
+     * [length] 以降に増えた完全なレコードを読み、[length] をその境界まで進めて返す。
+     * 他プロセスの追記分をリプレイする差分リード。自ハンドルの追記は [length] を
+     * 進めるため、ここには現れない。
+     *
+     * 末尾の不完全なレコードは破損ではなく他プロセスの書き込み途中とみなし、
+     * 切り捨てず読み残す（次回の呼び出しで完成していれば読める）。
+     * テールの切り捨てはオープン時の復旧だけの権利。
+     */
+    fun readNewRecords(): List<ByteArray> {
+        val end = reader.length()
+        if (end <= length) return emptyList()
+        val tail = ByteArray((end - length).toInt())
+        reader.seek(length)
+        reader.readFully(tail)
+        val result = scanRecords(tail, 0)
+        length += result.validLength
+        return result.records
+    }
+
     override fun close() {
+        reader.close()
         sink.close()
     }
 
@@ -131,7 +158,14 @@ internal class JournalFile private constructor(
                 sink.close()
                 throw e
             }
+            val reader = try {
+                RandomAccessFile(file, "r")
+            } catch (e: Throwable) {
+                sink.close()
+                throw e
+            }
             return JournalFile(
+                reader = reader,
                 sink = sink,
                 syncMode = syncMode,
                 replayedRecords = replay.records,
@@ -163,8 +197,24 @@ internal class JournalFile private constructor(
                 throw JournalFormatException("unsupported journal version: $version")
             }
 
+            val result = scanRecords(bytes, HEADER_SIZE)
+            return ParseResult(
+                result.records,
+                HEADER_SIZE + result.validLength,
+                truncated = HEADER_SIZE + result.validLength < bytes.size,
+            )
+        }
+
+        private class ScanResult(
+            val records: List<ByteArray>,
+            /** [records] が占めるバイト数（走査開始位置からの相対）。 */
+            val validLength: Long,
+        )
+
+        /** [from] から完全なレコードを走査する。不完全・不正なレコードで停止する。 */
+        private fun scanRecords(bytes: ByteArray, from: Int): ScanResult {
             val records = mutableListOf<ByteArray>()
-            var offset = HEADER_SIZE
+            var offset = from
             while (true) {
                 if (offset + LENGTH_SIZE > bytes.size) break
                 val length = readInt(bytes, offset)
@@ -177,7 +227,7 @@ internal class JournalFile private constructor(
                 records.add(bytes.copyOfRange(offset + LENGTH_SIZE, offset + LENGTH_SIZE + length))
                 offset = end
             }
-            return ParseResult(records, offset.toLong(), truncated = offset < bytes.size)
+            return ScanResult(records, (offset - from).toLong())
         }
 
         private fun readInt(bytes: ByteArray, offset: Int): Int =

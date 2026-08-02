@@ -50,6 +50,9 @@ kover {
                     "io.github.kr9ly.daybook.journal.OsDirectorySync",
                     "io.github.kr9ly.daybook.journal.AndroidDirectorySyncKt",
                 )
+                // FileObserver（inotify）は JVM / Robolectric で動かない。
+                // androidTest の FileObserverJournalWatcherTest で実機検証する
+                classes("io.github.kr9ly.daybook.journal.FileObserverJournalWatcherFactory*")
             }
         }
     }
