@@ -6,13 +6,12 @@ import io.github.kr9ly.daybook.kv.KvStore
 import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 
 /**
- * Marks daybook API that is public only so daybook's own artifacts (such as `daybook-test`)
- * can reach across the module boundary. It is not part of the supported surface: no
- * compatibility guarantees, and it may change or disappear in any release.
+ * daybook 自身の成果物（daybook-test 等）がモジュール境界を越えるためだけに public に
+ * している API のマーカー。サポート対象の表面ではない: 互換性保証はなく、どのリリースでも
+ * 変更・削除されうる。
  */
 @RequiresOptIn(
-    message = "Internal daybook API — reserved for daybook's own artifacts (daybook-test). " +
-        "No compatibility guarantees.",
+    message = "daybook の内部 API — daybook 自身の成果物（daybook-test）専用。互換性保証なし。",
     level = RequiresOptIn.Level.ERROR,
 )
 @Retention(AnnotationRetention.BINARY)
@@ -20,25 +19,24 @@ import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 public annotation class DaybookInternalApi
 
 /**
- * Entry point for `daybook-test`: builds a [SharedPreferences] whose adapter layer
- * (editor batching, notification computation, listener semantics, defensive copies)
- * is the real daybook implementation, backed by an in-memory store instead of a journal.
+ * daybook-test の入口: アダプタ層（Editor バッチ・通知算出・リスナーセマンティクス・
+ * 防御コピー）は本物の daybook 実装のまま、裏だけがジャーナルでなく in-memory ストアの
+ * [SharedPreferences] を組み立てる。
  */
 @DaybookInternalApi
 public object DaybookTestBridge {
 
     /**
-     * Creates an in-memory [SharedPreferences] running the real daybook adapter.
+     * 本物の daybook アダプタで動く in-memory の [SharedPreferences] を生成する。
      *
-     * [delivery] replaces the main-thread handler for listener notifications; tests pass
-     * an inline executor to make delivery synchronous and deterministic.
+     * [delivery] はリスナー通知のメインスレッド Handler を置き換える。テストはインライン
+     * 実行を渡すことで配送を同期・決定的にする。
      *
-     * [writeObserver] is invoked once per effective write batch, at the position where the
-     * journal append would happen — before the state is applied and listeners are notified.
-     * [clearRequested] reports whether the batch contains a clear; [changes] holds the
-     * effective changes in edit order (`null` value = remove). Throwing an [java.io.IOException]
-     * from the observer fails the write like a disk failure: `commit()` returns `false`,
-     * `apply()` discards the edit, and the state stays untouched.
+     * [writeObserver] は実効的な書き込みバッチごとに 1 回、ジャーナル追記が起きる位置 —
+     * 状態への適用とリスナー通知の前 — で呼ばれる。[clearRequested] はバッチに clear が
+     * 含まれるか、[changes] は実効変更（編集順、値 `null` は remove）。observer から
+     * [java.io.IOException] を投げるとディスク障害と同じ形で書き込みが失敗する:
+     * `commit()` は `false` を返し、`apply()` は編集を破棄し、状態は無傷のまま。
      */
     public fun createInMemorySharedPreferences(
         delivery: (Runnable) -> Unit,

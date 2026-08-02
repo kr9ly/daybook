@@ -8,21 +8,20 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 
 /**
- * Observes key changes of this `SharedPreferences` as a [Flow].
+ * この SharedPreferences のキー変更を [Flow] として観測する。
  *
- * Emits the changed key on every change notification, and `null` when `clear()` removed
- * entries (the API 30+ callback contract). Collection starts silent — there is no initial
- * emission, because a key-change stream has no "current" element.
+ * 変更通知のたびに変更されたキーを発火し、`clear()` でエントリが消えたときは `null` を
+ * 発火する（API 30+ のコールバック契約）。collect 開始時は無音 — キー変更の流れに
+ * 「現在の要素」は存在しないため、初期発火はない。
  *
- * This is an event stream, not a state stream: unlike [PreferenceProperty.asFlow] it is
- * neither conflated nor deduplicated, and the buffer is unbounded so a slow collector
- * never drops a change. The flip side of the unbounded buffer: a collector that stays
- * suspended while changes keep flowing accumulates them in memory, so cancel the flow
- * when you stop consuming.
+ * これは状態流でなくイベント流: [PreferenceProperty.asFlow] と違い conflate も重複排除も
+ * されず、バッファは無制限なので遅い collector でも変更を取りこぼさない。無制限バッファの
+ * 裏返しとして、collector が停止したまま変更が流れ続けるとメモリに溜まっていくので、
+ * 消費をやめるときは Flow をキャンセルすること。
  *
- * Backed by [SharedPreferences.OnSharedPreferenceChangeListener], so it works against any
- * `SharedPreferences` implementation and shares its contract: change callbacks arrive on
- * the main thread, and only edits made in the same process are observed.
+ * [SharedPreferences.OnSharedPreferenceChangeListener] に載っているため、どの
+ * SharedPreferences 実装の上でも動き、その契約を共有する: 変更コールバックは
+ * メインスレッドに届き、観測できるのは同一プロセス内の編集だけ。
  */
 public fun SharedPreferences.changesAsFlow(): Flow<String?> = callbackFlow {
     val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->

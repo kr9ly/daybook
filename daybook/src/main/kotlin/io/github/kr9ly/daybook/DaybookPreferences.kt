@@ -7,16 +7,13 @@ import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 import java.io.File
 
 /**
- * Options for opening a daybook store with [getDaybookSharedPreferences].
+ * [getDaybookSharedPreferences] で daybook ストアを開くときのオプション。
  *
- * Grouping the flags in one object keeps call sites explicit — flags are always
- * spelled out by name — and lets future options arrive without touching the
- * function signatures.
+ * フラグを 1 つのオブジェクトに集約することで、呼び出し側には常にフラグ名が書かれる形になり、
+ * 将来のオプション追加も関数シグネチャに触れずに受けられる。
  *
- * @property multiProcess Enable cross-process write serialization and change propagation.
- *   See [getDaybookSharedPreferences] for the contract.
- * @property importFromSharedPreferences Copy the same-named framework preferences on
- *   first creation. See [getDaybookSharedPreferences] for the exact semantics.
+ * @property multiProcess プロセス間の書き込み直列化と変更伝播を有効にする。契約は [getDaybookSharedPreferences] を参照。
+ * @property importFromSharedPreferences 初回生成時に同名のフレームワーク prefs を取り込む。正確なセマンティクスは [getDaybookSharedPreferences] を参照。
  */
 public class DaybookOptions(
     public val multiProcess: Boolean = false,
@@ -24,47 +21,41 @@ public class DaybookOptions(
 )
 
 /**
- * Returns a daybook-backed [SharedPreferences] for the given [name].
+ * [name] の daybook ストアを [SharedPreferences] として返す。
  *
- * Drop-in replacement for [Context.getSharedPreferences]: the returned instance follows the
- * `SharedPreferences` contract (editor batching, change listeners, default values), while
- * persisting through daybook's append-only journal instead of the framework's XML file.
- * Editor commits are atomic on disk — a crash never leaves a partially applied edit.
+ * [Context.getSharedPreferences] のドロップイン置き換え: 返り値は SharedPreferences の
+ * 契約（Editor のバッチ、変更リスナー、defValue）に従い、永続化だけがフレームワークの
+ * XML ファイルでなく daybook の追記ジャーナルになる。Editor の commit はディスク上で
+ * アトミック — クラッシュしても部分適用された編集は残らない。
  *
- * Like the framework API, the same [name] always returns the same instance within a process,
- * so listeners registered through one reference observe edits made through another.
+ * フレームワーク API と同じく、同一プロセス内では同じ [name] に常に同一インスタンスを返すため、
+ * ある参照経由で登録したリスナーには別の参照経由の編集も届く。
  *
- * Data lives under `filesDir/daybook/` and is completely separate from the framework's
- * `shared_prefs/` storage; replacing the call site switches the data source.
+ * データは `filesDir/daybook/` 配下に置かれ、フレームワークの `shared_prefs/` とは完全に別領域。
+ * 取得箇所の差し替えがそのままデータソースの切り替えになる。
  *
- * Set [DaybookOptions.multiProcess] when several processes of the app open the same [name]:
- * writes are then serialized with an inter-process lock and edits from other processes
- * become visible automatically (a working replacement for the deprecated and unreliable
- * `Context.MODE_MULTI_PROCESS`). All processes must agree on the flag for a given [name];
- * reopening the same name with a different value in the same process throws
- * [IllegalArgumentException]. Change listeners are only invoked for edits made in the
- * same process, matching the framework behavior.
+ * アプリの複数プロセスが同じ [name] を開くときは [DaybookOptions.multiProcess] を有効にする:
+ * 書き込みはプロセス間ロックで直列化され、他プロセスの編集は自動的に見えるようになる
+ * （deprecated で信頼できない `Context.MODE_MULTI_PROCESS` の動く代替）。
+ * ある [name] に対するフラグは全プロセスで一致させること。同一プロセス内で同じ名前を異なる値で
+ * 開き直すと [IllegalArgumentException]。変更リスナーが呼ばれるのは同一プロセス内の編集だけで、
+ * これはフレームワークと同じ挙動。
  *
- * Set [DaybookOptions.importFromSharedPreferences] to migrate transparently — see below.
+ * フレームワークからの意図的な逸脱が 1 つ: [SharedPreferences.Editor.clear] の通知は
+ * OS バージョンによらず常に API 30+ 挙動（key = null を 1 回）で配送される。
  *
- * One intentional deviation from the framework: clearing via [SharedPreferences.Editor.clear]
- * always notifies listeners once with a `null` key (the API 30+ behavior), regardless of the
- * OS version the app runs on.
+ * [DaybookOptions.importFromSharedPreferences] による透過マイグレーション: ストアの初回生成時に、
+ * 同名のフレームワーク SharedPreferences の全エントリをアトミックに取り込む。マーカーにより
+ * 取り込みは一度きりで、以後のオープン（アプリ再起動を含む）では再取り込みされない —
+ * マイグレーション後に行った編集が上書きされることはない。フレームワークのファイルはそのまま残る。
+ * 消したい場合は [importSharedPreferencesIntoDaybook] を `deleteSource = true` で使う。
+ * 取り込みが走るのはこの呼び出しがインスタンスを生成したときだけで、キャッシュヒット時に
+ * フラグの効果はない。multiProcess フラグとの対比に注意: multiProcess は全呼び出しで一致必須・
+ * 不一致は例外だが、import フラグは生成時の挙動だけを表し、以後は黙って無視される。
  *
- * With [DaybookOptions.importFromSharedPreferences] the migration is transparent: the first time the
- * store is created, all entries of the framework `SharedPreferences` with the same [name]
- * are copied in atomically, and a marker makes the import run only once — later opens
- * (and app restarts) never re-import, so edits made after the migration are preserved.
- * The framework file is left untouched; use [importSharedPreferencesIntoDaybook] with
- * `deleteSource = true` if you want it cleared. The import only happens when this call
- * creates the instance — on a cache hit the flag has no effect. Note the contrast with
- * the multiProcess flag, which must agree across all callers and throws on mismatch:
- * the import flag only describes creation-time behavior and is silently ignored afterwards.
- *
- * @param name Preferences file name. Must be non-empty and must not contain `/`.
- * @param options Store options; the default opens a single-process store without import.
- * @throws IllegalArgumentException if [name] is empty or contains `/`, or if the store is
- *   already open in this process with a different [DaybookOptions.multiProcess] value.
+ * @param name prefs 名。空文字と `/` を含む名前は不可。
+ * @param options ストアのオプション。デフォルトはシングルプロセス・取り込みなし。
+ * @throws IllegalArgumentException [name] が空か `/` を含む場合、またはこのプロセスで同じ名前が異なる [DaybookOptions.multiProcess] 値で既に開かれている場合。
  */
 public fun Context.getDaybookSharedPreferences(
     name: String,
@@ -77,13 +68,12 @@ public fun Context.getDaybookSharedPreferences(
 )
 
 /**
- * Returns the daybook-backed [SharedPreferences] under the default name.
+ * デフォルト名の daybook ストアを [SharedPreferences] として返す。
  *
- * Uses the same naming convention as `PreferenceManager.getDefaultSharedPreferences`
- * (`<packageName>_preferences`), so the logical store lines up one-to-one with the
- * framework's default preferences — with [DaybookOptions.importFromSharedPreferences]
- * the framework's default preferences migrate in transparently.
- * See [getDaybookSharedPreferences] for the contract and the options.
+ * `PreferenceManager.getDefaultSharedPreferences` と同じ命名規約（`<packageName>_preferences`）を
+ * 使うため、論理ストアがフレームワークのデフォルト prefs と 1:1 で対応する —
+ * [DaybookOptions.importFromSharedPreferences] でフレームワークのデフォルト prefs が透過的に
+ * 取り込まれる。契約とオプションは [getDaybookSharedPreferences] を参照。
  */
 public fun Context.getDefaultDaybookSharedPreferences(
     options: DaybookOptions = DaybookOptions(),

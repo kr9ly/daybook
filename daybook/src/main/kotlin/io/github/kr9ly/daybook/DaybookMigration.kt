@@ -7,22 +7,21 @@ import io.github.kr9ly.daybook.kv.KvStore
 import java.io.File
 
 /**
- * Imports the framework `SharedPreferences` named [name] into the daybook store of the
- * same name, once.
+ * [name] のフレームワーク SharedPreferences を同名の daybook ストアへ一度だけ取り込む。
  *
- * All entries are copied in a single atomic batch, overwriting daybook keys of the same
- * name and leaving other daybook keys untouched. A marker file records completion, so the
- * import runs at most once per store — including across process restarts — and edits made
- * to the daybook store after the import are never clobbered by a repeated call.
+ * 全エントリを 1 つのアトミックなバッチとしてコピーする。同名の daybook キーは上書きされ、
+ * それ以外の daybook キーはそのまま残る。完了はマーカーファイルに記録され、取り込みは
+ * ストアごとに最大一度きり（プロセス再起動をまたいでも）— 取り込み後に daybook 側へ行った
+ * 編集が、繰り返しの呼び出しで壊されることはない。
  *
- * The framework preferences are read and (with [deleteSource]) cleared through the official
- * `SharedPreferences` API only. By default the source is left as is, keeping a rollback
- * path; pass `deleteSource = true` to clear it after a successful import.
+ * フレームワーク prefs の読み取りと（[deleteSource] 時の）クリアは公式の SharedPreferences
+ * API だけで行う。デフォルトではソースを残す（ロールバック経路の維持）。取り込み成功後に
+ * 消したい場合は `deleteSource = true` を渡す。
  *
- * For the common "migrate on first use" case, prefer the `importFromSharedPreferences`
- * flag of [getDaybookSharedPreferences] — it calls this import under the hood.
+ * よくある「初回利用時にマイグレーション」には [getDaybookSharedPreferences] の
+ * `importFromSharedPreferences` フラグを推奨 — 内部でこの取り込みを呼んでいる。
  *
- * @return `true` if the import ran, `false` if it had already been done before.
+ * @return 取り込みが実行されたら `true`、既に実行済みだったら `false`。
  */
 public fun Context.importSharedPreferencesIntoDaybook(
     name: String,
@@ -30,43 +29,43 @@ public fun Context.importSharedPreferencesIntoDaybook(
 ): Boolean = DaybookMigration.import(applicationContext, name, deleteSource)
 
 /**
- * Imports every framework `SharedPreferences` file of this app into daybook stores of the
- * same names, once each.
+ * このアプリの全フレームワーク SharedPreferences ファイルを、同名の daybook ストアへ
+ * それぞれ一度だけ取り込む。
  *
- * Enumerates the app's `shared_prefs` directory and runs
- * [importSharedPreferencesIntoDaybook] for each name; the once-only marker applies per
- * name, so calling this repeatedly (e.g. on every app start) only picks up preferences
- * files that appeared since the last call.
+ * アプリの `shared_prefs` ディレクトリを列挙し、各名前に対して
+ * [importSharedPreferencesIntoDaybook] を実行する。一度きりマーカーは名前ごとに効くため、
+ * これを繰り返し呼んでも（例: アプリ起動のたび）、前回以降に現れた prefs ファイルだけが
+ * 取り込まれる。
  *
- * @return The names that were actually imported by this call, sorted.
+ * @return この呼び出しで実際に取り込まれた名前（ソート済み）。
  */
 public fun Context.importAllSharedPreferencesIntoDaybook(
     deleteSource: Boolean = false,
 ): List<String> = DaybookMigration.importAll(applicationContext, deleteSource)
 
 /**
- * Exports the daybook store named [name] to the framework `SharedPreferences` of the same
- * name, replacing its previous content.
+ * [name] の daybook ストアを同名のフレームワーク SharedPreferences へ書き出し、
+ * 以前の内容を置き換える。
  *
- * After the call the framework preferences hold exactly the daybook store's current
- * entries (stale framework keys are removed). Writing goes through the official
- * `SharedPreferences.Editor` API only. Use this as a rollback path before abandoning
- * daybook, or to expose current values to code that still reads the framework file
- * directly — in the latter case, re-export after each edit you want visible there.
+ * 呼び出し後、フレームワーク prefs は daybook ストアの現在のエントリと完全一致する
+ * （フレームワーク側にだけあった古いキーは消える）。書き込みは公式の
+ * `SharedPreferences.Editor` API だけで行う。daybook をやめる前のロールバック経路として、
+ * またはフレームワークのファイルを直読みする SDK 等に現在値を見せる用途に使う —
+ * 後者では見せたい編集のたびに再 export する。
  *
- * If no daybook store named [name] exists yet, the export runs against its empty state:
- * the framework preferences end up cleared, and an empty store is created on disk as a
- * side effect. Use [exportAllDaybookToSharedPreferences] to touch only existing stores.
+ * [name] の daybook ストアがまだ存在しない場合も、空の状態に対して export は走る:
+ * フレームワーク prefs はクリアされ、副作用として空のストアがディスクに作られる。
+ * 既存のストアだけを対象にしたい場合は [exportAllDaybookToSharedPreferences] を使う。
  */
 public fun Context.exportDaybookToSharedPreferences(name: String) {
     DaybookMigration.export(applicationContext, name)
 }
 
 /**
- * Exports every daybook store of this app to framework `SharedPreferences` of the same
- * names. See [exportDaybookToSharedPreferences] for the semantics of each export.
+ * このアプリの全 daybook ストアを、同名のフレームワーク SharedPreferences へ書き出す。
+ * 各 export のセマンティクスは [exportDaybookToSharedPreferences] を参照。
  *
- * @return The names of the exported stores, sorted.
+ * @return export されたストアの名前（ソート済み）。
  */
 public fun Context.exportAllDaybookToSharedPreferences(): List<String> =
     DaybookMigration.exportAll(applicationContext)

@@ -9,16 +9,15 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
- * Observes this property as a [Flow].
+ * このプロパティを [Flow] として観測する。
  *
- * Emits the current value on collection, then the new value whenever the property's key
- * changes (a `clear()` re-reads as well). Values are conflated — a slow collector sees
- * the latest state, not every intermediate write — and equal consecutive values are
- * dropped ([distinctUntilChanged]).
+ * collect 時に現在値を発火し、以後はプロパティのキーが変わるたびに新しい値を発火する
+ * （`clear()` でも再読する）。値は conflate される — 遅い collector は中間の書き込みでなく
+ * 最新状態を見る — うえ、連続する同値は落とされる（[distinctUntilChanged]）。
  *
- * Backed by [SharedPreferences.OnSharedPreferenceChangeListener], so it works against any
- * `SharedPreferences` implementation and shares its contract: change callbacks arrive on
- * the main thread, and only edits made in the same process are observed.
+ * [SharedPreferences.OnSharedPreferenceChangeListener] に載っているため、どの
+ * SharedPreferences 実装の上でも動き、その契約を共有する: 変更コールバックは
+ * メインスレッドに届き、観測できるのは同一プロセス内の編集だけ。
  */
 public fun <T> PreferenceProperty<T>.asFlow(): Flow<T> = callbackFlow {
     val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->

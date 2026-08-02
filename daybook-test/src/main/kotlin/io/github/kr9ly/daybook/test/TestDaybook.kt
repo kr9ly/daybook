@@ -6,32 +6,30 @@ import io.github.kr9ly.daybook.DaybookTestBridge
 import java.io.IOException
 
 /**
- * An in-memory daybook world for application unit tests, running on the plain JVM.
+ * アプリのユニットテスト向けの in-memory な daybook 世界。素の JVM で動く。
  *
- * [getSharedPreferences] returns instances driven by the real daybook adapter stack:
- * editor batching, effective-change computation (same-value puts and absent-key removes
- * are dropped), listener semantics (weak references, reverse key order, `clear` = one
- * `null`-key callback), and defensive copies all behave exactly as in production.
- * Only the persistence layer is absent — nothing touches the file system, and no
- * Android runtime (Robolectric or a device) is needed.
+ * [getSharedPreferences] が返すインスタンスは本物の daybook アダプタ層で動く:
+ * Editor のバッチ、実効変更の算出（同値 put と不在キーの remove は落ちる）、リスナーの
+ * セマンティクス（弱参照・キーの逆順・`clear` は key = null 1 回）、防御コピー —
+ * すべて本番とまったく同じに振る舞う。不在なのは永続層だけ: ファイルシステムには一切触れず、
+ * Android ランタイム（Robolectric や実機）も不要。
  *
- * The typed property API and the Flow adapters work on top of these instances unchanged,
- * because they only depend on the `SharedPreferences` interface.
+ * 型安全プロパティ API と Flow アダプタは SharedPreferences インターフェースにしか
+ * 依存しないため、この上で無変更で動く。
  *
- * One deliberate difference from production: listener notifications are delivered
- * synchronously on the committing thread, so when `commit()`/`apply()` returns,
- * listeners (and flows collected with an unconfined dispatcher) have already run.
- * This makes assertions deterministic without pumping a main looper.
+ * 本番との意図的な違いが 1 つ: リスナー通知は commit したスレッドで同期配送されるため、
+ * `commit()`/`apply()` が返った時点でリスナー（と unconfined ディスパッチャで collect
+ * している Flow）は実行済み。メインルーパーをポンプせずにアサーションが決定的になる。
  *
- * Each `TestDaybook` is an isolated world: create one per test (or per test class) and
- * throw it away — instances start no threads and hold no files or native resources, so
- * there is nothing to close, no global state, and no reset to remember. Within one instance
- * the production contract holds: the same [name] returns the same object, and reopening
- * a name with a different `multiProcess` flag throws [IllegalArgumentException].
- * The flag has no other effect in-memory, where everything is one process anyway.
+ * `TestDaybook` は 1 つずつが隔離された世界: テスト（またはテストクラス）ごとに生成して
+ * 使い捨てる — インスタンスはスレッドを起動せず、ファイルもネイティブリソースも持たない
+ * ため、close も、グローバル状態も、覚えておくべき reset もない。1 インスタンスの中では
+ * 本番の契約が守られる: 同じ [name] は同じオブジェクトを返し、同じ名前を異なる
+ * `multiProcess` フラグで開き直すと [IllegalArgumentException]。in-memory ではすべてが
+ * 1 プロセスなので、このフラグにそれ以外の効果はない。
  *
- * @param packageName Package name used by [getDefaultSharedPreferences] to derive the
- *   default store name (`<packageName>_preferences`), mirroring the production API.
+ * @param packageName [getDefaultSharedPreferences] がデフォルトストア名
+ *   （`<packageName>_preferences`）の導出に使うパッケージ名。本番 API のミラー。
  */
 public class TestDaybook(private val packageName: String = "test") {
 
@@ -46,14 +44,14 @@ public class TestDaybook(private val packageName: String = "test") {
     private val entries = HashMap<String, Entry>()
 
     /**
-     * Returns the in-memory [SharedPreferences] for [name], creating it on first access.
+     * [name] の in-memory [SharedPreferences] を返す。初回アクセス時に生成する。
      *
-     * Same-name calls return the same instance, so listeners registered through one
-     * reference observe edits made through another — as in production.
+     * 同名の呼び出しは同一インスタンスを返すため、ある参照経由で登録したリスナーには
+     * 別の参照経由の編集も届く — 本番と同じ。
      *
-     * @param name Preferences name. Must be non-empty and must not contain `/`.
-     * @param multiProcess Accepted for signature parity with the production API.
-     *   Consistency across calls is enforced, but the flag changes nothing in-memory.
+     * @param name prefs 名。空文字と `/` を含む名前は不可。
+     * @param multiProcess 本番 API とのシグネチャ対称性のために受け付ける。呼び出し間の
+     *   整合性チェックは行われるが、in-memory では挙動を何も変えない。
      */
     public fun getSharedPreferences(
         name: String,
@@ -76,22 +74,21 @@ public class TestDaybook(private val packageName: String = "test") {
     }
 
     /**
-     * Returns the in-memory [SharedPreferences] under the default name
-     * (`<packageName>_preferences`), mirroring `getDefaultDaybookSharedPreferences`.
+     * デフォルト名（`<packageName>_preferences`）の in-memory [SharedPreferences] を返す。
+     * `getDefaultDaybookSharedPreferences` のミラー。
      */
     public fun getDefaultSharedPreferences(multiProcess: Boolean = false): SharedPreferences =
         getSharedPreferences("${packageName}_preferences", multiProcess)
 
     /**
-     * Returns the commits recorded so far for [name], oldest first.
+     * [name] に対してこれまでに記録された commit を古い順で返す。
      *
-     * One [RecordedCommit] per effective write batch — the same granularity at which
-     * production writes a journal record and guarantees atomicity. Edits that change
-     * nothing (same-value puts, removes of absent keys, empty edits) never reach the
-     * journal in production and are not recorded here either. Writes failed by
-     * [failNextWrite] are not recorded.
+     * 実効的な書き込みバッチごとに 1 つの [RecordedCommit] — 本番がジャーナルレコードを
+     * 書きアトミック性を保証する単位と同じ粒度。何も変えない edit（同値 put・不在キーの
+     * remove・空 edit）は本番でジャーナルに届かないのと同様、ここにも記録されない。
+     * [failNextWrite] で失敗させた書き込みも記録されない。
      *
-     * The returned list is a snapshot; later commits do not modify it.
+     * 返り値はスナップショット。以後の commit で変化しない。
      */
     public fun commits(name: String): List<RecordedCommit> {
         synchronized(lock) {
@@ -100,16 +97,14 @@ public class TestDaybook(private val packageName: String = "test") {
     }
 
     /**
-     * Makes the next effective write to [name] fail like a disk failure: `commit()`
-     * returns `false`, `apply()` silently discards the edit, and in both cases the
-     * state stays untouched and no listener fires. Later writes succeed again.
+     * [name] への次の実効的な書き込みをディスク障害と同じ形で失敗させる: `commit()` は
+     * `false` を返し、`apply()` は黙って編集を破棄し、どちらも状態は無傷でリスナーも
+     * 発火しない。それ以降の書き込みは再び成功する。
      *
-     * Edits that change nothing do not consume the injection, because production
-     * never reaches the disk for them.
+     * 何も変えない edit は注入を消費しない — 本番でもディスクに到達しないため。
      *
-     * May be called before the preferences are first obtained. Calling it again while
-     * a failure is already pending keeps a single pending failure — injections do not
-     * queue up.
+     * prefs を最初に取得する前に呼んでもよい。失敗が保留されている間に再度呼んでも
+     * 保留は 1 つのまま — 注入はキューされない。
      */
     public fun failNextWrite(name: String) {
         synchronized(lock) {
@@ -141,23 +136,23 @@ public class TestDaybook(private val packageName: String = "test") {
 }
 
 /**
- * One effective write batch, as it would have hit the journal in production.
+ * 実効的な書き込みバッチ 1 つ。本番でジャーナルレコードとして書かれたはずの単位そのもの。
  *
- * This is daybook's unit of atomicity: everything in one commit becomes visible together
- * or not at all. Asserting on the recorded commits therefore verifies not just what the
- * code under test wrote, but whether related keys were written atomically in one edit.
+ * これは daybook のアトミック性の単位: 1 つの commit に入ったものは全部一緒に見えるように
+ * なるか、全部見えないかの二択。記録された commit へのアサーションは「テスト対象が何を
+ * 書いたか」だけでなく「関連キーが 1 つの edit でアトミックに書かれたか」の検証になる。
  *
- * Value semantics: two commits are equal when [clearRequested] and [changes] are equal
- * (map equality — the edit order [changes] preserves does not participate), so expected
- * commits can be constructed and compared with `assertEquals` directly.
+ * 値セマンティクス: [clearRequested] と [changes] が等しければ等しい（Map の等価性 —
+ * [changes] が保持する編集順は等価性に関与しない）ため、期待する commit を構築して
+ * `assertEquals` で直接比較できる。
  */
 public class RecordedCommit(
-    /** Whether the edit requested `clear()`. Always written, even when the state was already empty. */
+    /** edit が `clear()` を要求したか。状態が既に空でも常に書かれる。 */
     public val clearRequested: Boolean,
     /**
-     * Effective changes, with a `null` value meaning a remove.
-     * The map is always an insertion-ordered implementation reflecting edit order —
-     * a guarantee this property adds on top of the plain `Map` interface.
+     * 実効変更。値 `null` は remove。
+     * Map は常に挿入順（= 編集順）で走査できる実装 — 素の `Map` インターフェースの上に
+     * このプロパティが上乗せする保証。
      */
     public val changes: Map<String, Any?>,
 ) {

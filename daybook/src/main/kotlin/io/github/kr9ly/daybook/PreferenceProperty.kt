@@ -5,45 +5,43 @@ import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
 /**
- * A single typed entry of a [SharedPreferences] — the key name, the value type, and the
- * default are fixed in one place, so neither the key string nor the `defValue` argument
- * is ever repeated at call sites.
+ * [SharedPreferences] の型付きエントリ 1 つ — キー名・値型・デフォルトを宣言 1 箇所に固定し、
+ * キー文字列も defValue 引数も呼び出し側で繰り返させない。
  *
- * Created by the factory extensions ([boolean], [int], [long], [float], [string],
- * [stringSet]) and usable in two ways:
+ * ファクトリ拡張（[boolean], [int], [long], [float], [string], [stringSet]）で生成し、
+ * 2 通りに使える:
  *
  * ```kotlin
  * class Settings(prefs: SharedPreferences) {
- *     // as a property delegate
+ *     // プロパティデリゲートとして
  *     var darkMode by prefs.boolean("dark_mode", default = false)
  *
- *     // as a value when you also need the property object itself (e.g. for asFlow())
+ *     // プロパティオブジェクト自体も欲しいとき（asFlow() 等）は値として受ける
  *     val fontScalePref = prefs.float("font_scale", default = 1.0f)
  *     var fontScale by fontScalePref
  * }
  * ```
  *
- * [set] (and delegated assignment) writes with `apply()`, following the framework idiom;
- * batch multiple keys atomically through the plain [SharedPreferences.edit] when needed.
- * Works against any `SharedPreferences` implementation — the framework one as well as
- * daybook's — so typed access can be adopted before or after migrating the backing store.
+ * [set]（およびデリゲート代入）はフレームワークの慣用に合わせて `apply()` で書く。
+ * 複数キーのアトミックな一括更新は素の [SharedPreferences.edit] に落とす。
+ * SharedPreferences 実装なら何の上でも動く — フレームワーク実装でも daybook でも — ため、
+ * 型付きアクセスはバッキングストアの移行前にも移行後にも導入できる。
  *
- * Instances are immutable; thread safety of reads and writes follows the backing
- * [SharedPreferences] contract.
+ * インスタンスは不変。読み書きのスレッド安全性は背後の [SharedPreferences] の契約に従う。
  */
 public class PreferenceProperty<T> internal constructor(
-    /** The preferences instance this property reads from and writes to. */
+    /** このプロパティが読み書きする prefs インスタンス。 */
     public val preferences: SharedPreferences,
-    /** The key this property is stored under. */
+    /** このプロパティの格納キー。 */
     public val key: String,
     private val read: (SharedPreferences) -> T,
     private val write: (SharedPreferences.Editor, T) -> Unit,
 ) : ReadWriteProperty<Any?, T> {
 
-    /** Returns the current value, or the default fixed at declaration when absent. */
+    /** 現在値を返す。不在なら宣言時に固定したデフォルト。 */
     public fun get(): T = read(preferences)
 
-    /** Writes [value] with `apply()`. For nullable properties, `null` removes the key. */
+    /** [value] を `apply()` で書き込む。nullable なプロパティでは `null` がキーの削除。 */
     public fun set(value: T) {
         val editor = preferences.edit()
         write(editor, value)
@@ -57,22 +55,22 @@ public class PreferenceProperty<T> internal constructor(
     }
 
     /**
-     * Adapts this property to another value type by converting at the boundary:
-     * [decode] on every read, [encode] on every write.
+     * 境界での変換によって、このプロパティを別の値型に適合させる:
+     * 読むたびに [decode]、書くたびに [encode] が走る。
      *
-     * The result is a full [PreferenceProperty] over the same key, so delegation and
-     * `asFlow()` work unchanged. The default stays declared on the stored side; `map`
-     * is pure value conversion and never sees "absent".
+     * 返り値は同じキーの上の完全な [PreferenceProperty] なので、デリゲートも `asFlow()` も
+     * 無変更で効く。デフォルトは格納側の世界で宣言されたまま — `map` は純粋な値変換であり、
+     * 「不在」を見ることはない。
      *
      * ```kotlin
      * var theme by prefs.string("theme", default = Theme.SYSTEM.name)
      *     .map(decode = Theme::valueOf, encode = Theme::name)
      * ```
      *
-     * Conversion failures (e.g. a stored value that [decode] no longer understands)
-     * propagate as-is; chain [catch] after `map` to recover with a fallback if you
-     * want lenient reads. Failures of [encode] on write also propagate as-is — they
-     * are caller bugs, and [catch] deliberately covers the read path only.
+     * 変換の失敗（例: [decode] がもう理解できない格納値）はそのまま伝播する。読み取りを
+     * 寛容にしたい場合は `map` の後ろに [catch] をチェーンしてフォールバックで回復する。
+     * 書き込み時の [encode] の失敗も同様にそのまま伝播する — 呼び出し側のバグであり、
+     * [catch] は意図的に読み取り経路だけを対象にする。
      */
     public fun <R> map(decode: (T) -> R, encode: (R) -> T): PreferenceProperty<R> =
         PreferenceProperty(
@@ -83,13 +81,13 @@ public class PreferenceProperty<T> internal constructor(
         )
 
     /**
-     * Recovers from read failures with [handler], like `Flow.catch`: only the read path
-     * is covered — write failures are caller bugs and propagate as-is.
+     * 読み取りの失敗を [handler] で回復する。`Flow.catch` と同型: 対象は読み取り経路だけで、
+     * 書き込みの失敗は呼び出し側のバグとしてそのまま伝播する。
      *
-     * "Read failures" means any exception thrown while reading, not just an upstream
-     * [map] decode failure: a `ClassCastException` from reading an existing key with a
-     * mismatched factory type is recovered too. If you want type mismatches to stay
-     * loud, keep `catch` off the property and handle decode failures inside [map].
+     * 「読み取りの失敗」は読み取り中に投げられたあらゆる例外を指し、上流の [map] の decode
+     * 失敗に限らない: 既存キーを型違いのファクトリで読んだときの `ClassCastException` も
+     * 回復される。型違いを大きな音で落としたい場合は、プロパティに `catch` を付けず、
+     * decode の失敗は [map] の内側で処理すること。
      *
      * ```kotlin
      * var theme by prefs.string("theme", default = Theme.SYSTEM.name)
@@ -112,35 +110,35 @@ public class PreferenceProperty<T> internal constructor(
         )
 }
 
-/** Typed boolean entry under [key], returning [default] when absent. */
+/** [key] の型付き boolean エントリ。不在なら [default]。 */
 public fun SharedPreferences.boolean(key: String, default: Boolean): PreferenceProperty<Boolean> =
     PreferenceProperty(this, key, { it.getBoolean(key, default) }, { e, v -> e.putBoolean(key, v) })
 
-/** Typed int entry under [key], returning [default] when absent. */
+/** [key] の型付き int エントリ。不在なら [default]。 */
 public fun SharedPreferences.int(key: String, default: Int): PreferenceProperty<Int> =
     PreferenceProperty(this, key, { it.getInt(key, default) }, { e, v -> e.putInt(key, v) })
 
-/** Typed long entry under [key], returning [default] when absent. */
+/** [key] の型付き long エントリ。不在なら [default]。 */
 public fun SharedPreferences.long(key: String, default: Long): PreferenceProperty<Long> =
     PreferenceProperty(this, key, { it.getLong(key, default) }, { e, v -> e.putLong(key, v) })
 
-/** Typed float entry under [key], returning [default] when absent. */
+/** [key] の型付き float エントリ。不在なら [default]。 */
 public fun SharedPreferences.float(key: String, default: Float): PreferenceProperty<Float> =
     PreferenceProperty(this, key, { it.getFloat(key, default) }, { e, v -> e.putFloat(key, v) })
 
-/** Typed string entry under [key], returning [default] when absent. */
+/** [key] の型付き string エントリ。不在なら [default]。 */
 public fun SharedPreferences.string(key: String, default: String): PreferenceProperty<String> =
     PreferenceProperty(this, key, { it.getString(key, null) ?: default }, { e, v -> e.putString(key, v) })
 
-/** Nullable string entry under [key]: absent reads as `null`, setting `null` removes the key. */
+/** [key] の nullable string エントリ: 不在は `null`、`null` の代入はキーの削除。 */
 public fun SharedPreferences.string(key: String): PreferenceProperty<String?> =
     PreferenceProperty(this, key, { it.getString(key, null) }, { e, v -> e.putString(key, v) })
 
 /**
- * Typed string-set entry under [key], returning [default] when absent.
+ * [key] の型付き string-set エントリ。不在なら [default]。
  *
- * The [default] is copied at declaration, so mutating the caller's set afterwards never
- * changes what absent-key reads return.
+ * [default] は宣言時にコピーされるため、呼び出し側が渡した Set を後から変更しても
+ * 不在キーの読み出し結果は変わらない。
  */
 public fun SharedPreferences.stringSet(
     key: String,
@@ -155,6 +153,6 @@ public fun SharedPreferences.stringSet(
     )
 }
 
-/** Nullable string-set entry under [key]: absent reads as `null`, setting `null` removes the key. */
+/** [key] の nullable string-set エントリ: 不在は `null`、`null` の代入はキーの削除。 */
 public fun SharedPreferences.stringSet(key: String): PreferenceProperty<Set<String>?> =
     PreferenceProperty(this, key, { it.getStringSet(key, null) }, { e, v -> e.putStringSet(key, v) })
