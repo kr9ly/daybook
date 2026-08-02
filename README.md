@@ -57,10 +57,31 @@ context.exportDaybookToSharedPreferences("settings")            // フレーム�
 context.exportAllDaybookToSharedPreferences()                   // 一括書き戻し
 ```
 
+### 型安全 API と Flow
+
+型安全層と Flow アダプタは SharedPreferences インターフェースだけに依存する。
+framework の prefs でも daybook でも同じに動くので、移行の前から導入でき、daybook をやめても残せる。
+
+```kotlin
+class Settings(prefs: SharedPreferences) {
+    // キー名・型・デフォルトを 1 箇所に固定（キー名は明示必須 — リネームで永続キーが変わる事故を防ぐ）
+    var darkMode by prefs.boolean("dark_mode", default = false)
+    var nickname by prefs.string("nickname")            // default なし = nullable、null の代入で削除
+
+    // Flow が欲しいプロパティは、いったん val に受けてから by する
+    val fontScalePref = prefs.float("font_scale", default = 1.0f)
+    var fontScale by fontScalePref
+}
+
+settings.darkMode = true                                 // putBoolean + apply
+settings.fontScalePref.asFlow()                          // Flow<Float>（daybook-coroutines）。collect 時に現在値を発火
+```
+
 ## Status
 
 実装済み: ジャーナル層、KV エンコード層、インメモリキャッシュ、compaction（世代方式）、
-マルチプロセス対応（実機検証済み）、SharedPreferences 互換レイヤー、相互マイグレーション。
+マルチプロセス対応（実機検証済み）、SharedPreferences 互換レイヤー、相互マイグレーション、
+型安全 API、Flow アダプタ（daybook-coroutines）。
 JVM テストは行・ブランチカバレッジ 100%、結合点は Instrumentation テストで実機検証。
 
-未了: 公開 API の凍結レビュー、Flow アダプタ（daybook-coroutines）、Maven Central 公開。
+未了: 公開 API の凍結レビュー、Maven Central 公開。

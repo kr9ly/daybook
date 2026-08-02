@@ -152,8 +152,30 @@
   （互換レイヤーの `OnSharedPreferenceChangeListener` は例外的に踏襲する — 互換レイヤー節を参照）
 - **互換リスナー**: `SharedPreferences` インターフェース実装の一部として
   `OnSharedPreferenceChangeListener` もサポート（ドロップイン移行のため）
-- **上位 API**: Flow アダプタ（`fun <T> watch(key): Flow<T>` 相当）は別モジュールの
-  薄いラッパーとして提供。コアは coroutine 非依存を保つ
+- **上位 API**: Flow アダプタは別モジュール（daybook-coroutines）の薄いラッパーとして提供。
+  コアは coroutine 非依存を保つ。1.0 の Flow はコアのリスナーでなく
+  `OnSharedPreferenceChangeListener` に載せる（型安全 API 節を参照）。
+  クロスプロセスの Flow が必要になったらコアの `KvChangeListener` を公開する 1.x の裁定に先送り
+
+### 型安全 API と Flow アダプタ
+
+型安全層（`PreferenceProperty<T>`）と Flow アダプタ（`asFlow()`）は daybook 本体でなく
+SharedPreferences インターフェースだけに依存させる。
+framework の prefs の上でも同じに動くため、「型安全層と Flow を先に導入してから裏を daybook に差し替える」も
+「daybook をやめても型安全層と Flow は残る」も成立し、相互マイグレーションがストアの交換可能性として強くなる。
+
+- キー定義: 明示キー必須のプロパティデリゲート。キー名・型・デフォルトを宣言 1 箇所に固定し、
+  キー文字列と defValue のばら撒きをなくす。プロパティ名からのキー導出はしない
+  （リネームで永続キーが黙って変わる罠を踏まないため）
+- デリゲートファクトリの返り値（`PreferenceProperty`）自体がキーオブジェクトを兼ねる:
+  `by` で書き味を取りつつ、Flow が欲しいプロパティは val に受けて `asFlow()` の手がかりにする。
+  どの経路でもキー名の二重記述は起きない
+- default あり = non-null、default なし（string / stringSet）= nullable を宣言時の型で分ける。
+  nullable への null 代入はキーの削除（`putString(key, null)` = remove の互換契約に乗る）
+- デリゲートの書き込みは `apply()`（framework の慣用。daybook が裏なら同期でアトミック）。
+  複数キーのアトミックな一括更新は従来の Editor に落ちる — 互換 API と地続きなのがこの構成の利点
+- `asFlow()`: collect 時に現在値を発火 → 以降は自キーの変更（clear 含む）で再読して発火。
+  conflate + distinctUntilChanged。リスナー契約に載るため、発火はプロセス内の編集のみ・同値 put では発火しない
 
 ### SharedPreferences 互換レイヤー（公開 API 表面）
 

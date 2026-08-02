@@ -31,6 +31,8 @@ android {
 }
 
 kotlin {
+    // 公開 API の意図しない露出を防ぐ（public は明示宣言のみ）
+    explicitApi()
     compilerOptions {
         // 消費側の Kotlin 2.0 コンパイラが読めるメタデータを出す
         apiVersion.set(KotlinVersion.KOTLIN_2_0)
