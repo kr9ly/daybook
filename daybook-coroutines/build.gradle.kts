@@ -2,42 +2,72 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.android.kmp.library)
+    alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.maven.publish)
     alias(libs.plugins.kover)
-}
-
-android {
-    namespace = "io.github.kr9ly.daybook.coroutines"
-    compileSdk = 36
-
-    defaultConfig {
-        minSdk = 21
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    testOptions {
-        unitTests {
-            isIncludeAndroidResources = true
-            all {
-                it.useJUnit()
-            }
-        }
-    }
 }
 
 kotlin {
     // 公開 API の意図しない露出を防ぐ（public は明示宣言のみ）
     explicitApi()
+
     compilerOptions {
         // 消費側の Kotlin 2.0 コンパイラが読めるメタデータを出す
         apiVersion.set(KotlinVersion.KOTLIN_2_0)
         languageVersion.set(KotlinVersion.KOTLIN_2_0)
-        jvmTarget.set(JvmTarget.JVM_11)
+    }
+
+    // common の Flow アダプタ（core の型安全 API 向け）は型安全 API の新設と同時に開く。
+    // それまで jvm ターゲットは KMP 化の成立（JVM デスクトップビルド）だけを担保する
+    jvm {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_11)
+        }
+    }
+
+    androidLibrary {
+        namespace = "io.github.kr9ly.daybook.coroutines"
+        compileSdk = 36
+        minSdk = 21
+
+        compilations.configureEach {
+            compileTaskProvider.configure {
+                compilerOptions {
+                    jvmTarget.set(JvmTarget.JVM_11)
+                }
+            }
+        }
+
+        // 1.x 由来のユニットテスト（Robolectric）はホストテストとして温存する
+        withHostTestBuilder {}.configure {
+            isIncludeAndroidResources = true
+        }
+    }
+
+    sourceSets {
+        commonMain {
+            dependencies {
+                // サポートライン（2.0.0）で明示宣言する方針（gradle.properties を参照）
+                implementation(libs.kotlin.stdlib)
+                api(project(":daybook-core"))
+                api(libs.kotlinx.coroutines.core)
+            }
+        }
+        androidMain {
+            dependencies {
+                // 1.x の SharedPreferences 向け API（asFlow / changesAsFlow）の依存先
+                api(project(":daybook"))
+            }
+        }
+        getByName("androidHostTest") {
+            dependencies {
+                implementation(libs.junit)
+                implementation(libs.robolectric)
+                implementation(libs.androidx.test.core)
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
     }
 }
 
@@ -74,15 +104,4 @@ mavenPublishing {
             developerConnection.set("scm:git:ssh://git@github.com/kr9ly/daybook.git")
         }
     }
-}
-
-dependencies {
-    implementation(libs.kotlin.stdlib)
-    api(project(":daybook"))
-    api(libs.kotlinx.coroutines.core)
-
-    testImplementation(libs.junit)
-    testImplementation(libs.robolectric)
-    testImplementation(libs.androidx.test.core)
-    testImplementation(libs.kotlinx.coroutines.test)
 }
