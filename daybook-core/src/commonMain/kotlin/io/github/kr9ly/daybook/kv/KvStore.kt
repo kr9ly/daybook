@@ -80,6 +80,12 @@ public class KvStore private constructor(
      * （[openInMemory] が書き込み観測・失敗注入の継ぎ目として使う）。
      */
     private val writeHook: (KvOperation.Mutation) -> Unit = {},
+    /**
+     * リスナー通知の配送手段。null なら store 専用の配送スレッドを起動する（通常のストア）。
+     * 注入された配送は書き込みロックの内側から呼ばれる点に注意 — 同期配送を注入した場合、
+     * リスナーは書き込み呼び出しのスタック上で実行される（daybook-test の決定的配送用）。
+     */
+    injectedDelivery: ChangeNotificationDelivery? = null,
 ) : AutoCloseable {
 
     /**
@@ -105,7 +111,11 @@ public class KvStore private constructor(
     private var listeners: List<DaybookChangeListener> = emptyList()
     private val listenersLock = Lock()
 
-    private val dispatcher = NotificationDispatchThread()
+    /** 自前の配送スレッド。配送が注入されたときは起動しない。 */
+    private val ownDispatchThread: NotificationDispatchThread? =
+        if (injectedDelivery == null) NotificationDispatchThread() else null
+
+    private val delivery: ChangeNotificationDelivery = injectedDelivery ?: ownDispatchThread!!
 
     /** キーの現在値。未設定なら null。 */
     public fun get(key: String): Any? = cache[key]
@@ -362,7 +372,7 @@ public class KvStore private constructor(
         // 変更時点で登録されていたリスナーに配送する（配送時点の一覧ではなく）
         val snapshot = listeners
         if (snapshot.isEmpty()) return
-        dispatcher.deliver {
+        delivery.deliver {
             snapshot.forEach { listener -> listener.onChange(key, newValue) }
         }
     }
@@ -376,7 +386,7 @@ public class KvStore private constructor(
             interProcessLock?.close()
             journal.close()
         }
-        dispatcher.close()
+        ownDispatchThread?.close()
     }
 
     public companion object {
@@ -398,8 +408,15 @@ public class KvStore private constructor(
          * [writeHook] が IOException を投げると追記失敗と同じ経路に乗る（書き込み観測・失敗注入の継ぎ目）。
          * compaction は length が育たないため、watcher・プロセス間ロックはマルチプロセス限定のため、
          * 構造的に起動しない（directoryFile / directory は到達しないダミー）。
+         *
+         * [delivery] はリスナー通知の配送手段の差し替え（null なら専用スレッド）。
+         * 同期配送を注入するとリスナーは書き込み呼び出しのスタック上で実行され、
+         * 配送スレッドは起動しない（daybook-test の決定的配送の継ぎ目）。
          */
-        public fun openInMemory(writeHook: (KvOperation.Mutation) -> Unit = {}): KvStore = KvStore(
+        public fun openInMemory(
+            delivery: ChangeNotificationDelivery? = null,
+            writeHook: (KvOperation.Mutation) -> Unit = {},
+        ): KvStore = KvStore(
             directoryFile = FilePath(""),
             directory = JournalDirectory(FilePath(""), "in-memory"),
             generation = 0,
@@ -413,6 +430,7 @@ public class KvStore private constructor(
             cache = ConcurrentMutableMap(),
             recoveredFromCorruption = false,
             writeHook = writeHook,
+            injectedDelivery = delivery,
         )
 
         /**

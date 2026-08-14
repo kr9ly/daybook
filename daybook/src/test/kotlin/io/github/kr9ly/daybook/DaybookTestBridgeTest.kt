@@ -1,68 +1,38 @@
 package io.github.kr9ly.daybook
 
+import io.github.kr9ly.daybook.kv.KvStore
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * [DaybookTestBridge] のテスト。
- * KvOperation から公開シグネチャ（clearRequested + changes）への変換と、
- * delivery / writeObserver の配線を SharedPreferences 契約の側から検証する。
+ * 渡したストアの上で顔が動くこと・delivery の配線・ストア由来の書き込み失敗の現れ方を
+ * SharedPreferences 契約の側から検証する。書き込み観測の変換（RecordedCommit）は
+ * daybook-test 側の責務になったため、ここでは扱わない。
  * Looper に触れない配送を注入するため Robolectric は不要（素の JVM で走る）。
  */
 @OptIn(DaybookInternalApi::class)
 class DaybookTestBridgeTest {
 
-    private class Observed(val clearRequested: Boolean, val changes: Map<String, Any?>)
-
-    private val observed = mutableListOf<Observed>()
-    private var observer: (Boolean, Map<String, Any?>) -> Unit = { clear, changes ->
-        observed += Observed(clear, changes)
-    }
-
-    private val prefs = DaybookTestBridge.createInMemorySharedPreferences(
-        delivery = { it.run() },
-        writeObserver = { clear, changes -> observer(clear, changes) },
+    private var failWrites = false
+    private val store = KvStore.openInMemory(
+        delivery = { it() },
+        writeHook = { if (failWrites) throw IOException("injected") },
     )
+    private val prefs = DaybookTestBridge.wrapAsSharedPreferences(store) { it.run() }
 
     @Test
-    fun singlePut_observedAsOneChange() {
+    fun prefsFace_operatesOnGivenStore() {
         prefs.edit().putString("key", "value").commit()
-        val single = observed.single()
-        assertFalse(single.clearRequested)
-        assertEquals(mapOf<String, Any?>("key" to "value"), single.changes)
+        assertEquals("value", store.get("key"))
+        store.put("other", 1)
+        assertEquals(1, prefs.getInt("other", 0))
     }
 
     @Test
-    fun singleRemove_observedAsNullValue() {
-        prefs.edit().putString("key", "value").commit()
-        prefs.edit().remove("key").commit()
-        assertEquals(mapOf<String, Any?>("key" to null), observed.last().changes)
-    }
-
-    @Test
-    fun clearOnly_observedAsClearRequestedWithoutChanges() {
-        prefs.edit().clear().commit()
-        val single = observed.single()
-        assertTrue(single.clearRequested)
-        assertEquals(emptyMap<String, Any?>(), single.changes)
-    }
-
-    @Test
-    fun batch_observedInEditOrder() {
-        prefs.edit().clear().putInt("a", 1).putInt("b", 2).remove("absent-put").putString("c", "v")
-            .commit()
-        val single = observed.single()
-        assertTrue(single.clearRequested)
-        // 不在キーの remove は実効変更でないため現れない
-        assertEquals(mapOf<String, Any?>("a" to 1, "b" to 2, "c" to "v"), single.changes)
-        assertEquals(listOf("a", "b", "c"), single.changes.keys.toList())
-    }
-
-    @Test
-    fun delivery_receivesListenerNotifications() {
+    fun delivery_receivesListenerNotificationsSynchronously() {
         val delivered = mutableListOf<String?>()
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             delivered += key
@@ -74,9 +44,13 @@ class DaybookTestBridgeTest {
     }
 
     @Test
-    fun observerThrowingIOException_failsCommitAndLeavesStateUntouched() {
-        observer = { _, _ -> throw IOException("injected") }
+    fun storeWriteFailure_failsCommitAndLeavesStateUntouched() {
+        failWrites = true
         assertFalse(prefs.edit().putInt("a", 1).commit())
         assertFalse(prefs.contains("a"))
+        failWrites = false
+        // 以後の書き込みは成功する
+        prefs.edit().putInt("a", 2).commit()
+        assertEquals(2, prefs.getInt("a", 0))
     }
 }

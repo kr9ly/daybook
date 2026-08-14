@@ -15,9 +15,12 @@ public class RecordedCommit(
     /** edit が `clear()` を要求したか。状態が既に空でも常に書かれる。 */
     public val clearRequested: Boolean,
     /**
-     * 実効変更。値 `null` は remove。
+     * バッチに含まれた変更。値 `null` は remove。
      * Map は常に挿入順（= 編集順）で走査できる実装 — 素の `Map` インターフェースの上に
      * このプロパティが上乗せする保証。
+     * SharedPreferences の顔は Editor が実効変更に絞ってから書くため 1.x と同じ内容になる。
+     * Daybook の edit は操作をそのまま書くため、同値 put もここに現れる。バッチ内で同一キーに
+     * 複数回書いた場合は最後の操作が残る（clear の有無は [clearRequested] の別軸）。
      */
     public val changes: Map<String, Any?>,
 ) {
