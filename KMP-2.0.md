@@ -62,6 +62,10 @@ multiplatform-settings 側も DataStore アダプタを別モジュールにし�
 - 利点: A の主権と B の互換の両取り。アダプタは薄く、失敗しても切り捨てられる
 - 欠点: モジュールが 1 つ増える。独自インターフェースと Settings の意味論の対応を維持する責務を負う
 
+型安全 API（PreferenceProperty 相当）の生やし先は独自 IF であって Settings ではない（確認 2026-08-14）。
+Settings インターフェースには変更リスナーが基本形に含まれず（ObservableSettings は別 IF）、1.x PreferenceProperty が SharedPreferences から借りていた能力（リスナー経由の asFlow 等）を Settings の上では揃えられない。
+Settings 利用者向けの型安全ラッパーはエコシステム既存資産がそのまま動くため、daybook 側で Settings 対象の型安全 API を持つ必要もない。
+
 ### 論点: 値型の不一致
 
 `Settings` は Int/Long/String/Float/Double/Boolean を持ち、StringSet を持たない。
@@ -128,6 +132,13 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
 - commonMain（core）: MigrationSource インターフェース + マイグレーションスキーマ定義 + 冪等実行エンジン
 - core の iosMain: NSUserDefaultsMigrationSource（suiteName 指定・prewarming ガード込み）
 - :daybook（Android アダプタ）: SharedPreferencesMigrationSource。Context が要るので core の androidMain ではなくこちらに置き、1.x の相互マイグレーション実装と同居させる
+
+パッケージ名（裁定 2026-08-14: `.core` は付けず 1.x パッケージを引き継ぐ）:
+
+- core は `io.github.kr9ly.daybook.journal` / `io.github.kr9ly.daybook.kv` をそのまま使う。移設対象は全て internal で API.md にも非掲載のため、パッケージ名は外部契約になっておらず、引き継げば :daybook 残留側の import 変更がゼロになる
+- ルートパッケージ `io.github.kr9ly.daybook` は :daybook 専有とし、core はサブパッケージのみ使う。同一パッケージを複数 jar に分散させると JPMS（module-info 環境）で split package エラーになるため（JVM デスクトップ展開があるので無視しない）
+- FQCN の重複禁止: core 新設の型安全 API（独自 KV IF 版 PreferenceProperty）は :daybook 残留の 1.x 版と同じ完全修飾名にしない。`.kv` 側に置けば自然に回避される
+- ガワに仮置きした `io.github.kr9ly.daybook.core` プレースホルダは移設時に消す
 
 expect/actual と素のインターフェースの使い分け:
 
