@@ -46,6 +46,11 @@ kotlin {
     }
 
     sourceSets {
+        // テストが core の @DaybookInternalApi ブリッジ（openInMemory / asDaybook）で
+        // Daybook を組み立てるため、daybook 自身の成果物として一括許可する
+        all {
+            languageSettings.optIn("io.github.kr9ly.daybook.internal.DaybookInternalApi")
+        }
         commonMain {
             dependencies {
                 // サポートライン（2.0.0）で明示宣言する方針（gradle.properties を参照）
@@ -58,6 +63,12 @@ kotlin {
             dependencies {
                 // 1.x の SharedPreferences 向け API（asFlow / changesAsFlow）の依存先
                 api(project(":daybook"))
+            }
+        }
+        commonTest {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test)
             }
         }
         getByName("androidHostTest") {

@@ -1,7 +1,15 @@
 package io.github.kr9ly.daybook.kv
 
-/** エンジン（[KvStore]）を公開の顔 [Daybook] に適合させる。 */
-internal fun KvStore.asDaybook(): Daybook = KvStoreDaybook(this)
+import io.github.kr9ly.daybook.internal.DaybookInternalApi
+
+/**
+ * エンジン（[KvStore]）を公開の顔 [Daybook] に適合させる。
+ *
+ * daybook 自身の成果物（daybook-coroutines / daybook-test）がテストや in-memory
+ * コンテナの構築でエンジンから顔を組み立てるためのブリッジ。
+ */
+@DaybookInternalApi
+public fun KvStore.asDaybook(): Daybook = KvStoreDaybook(this)
 
 /**
  * [Daybook] の実装。エンジンへの薄い委譲で、独自の状態は持たない。
