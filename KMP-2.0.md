@@ -150,7 +150,14 @@ expect/actual と素のインターフェースの使い分け:
   - core の外部依存ゼロを KMP 化後も維持できる。kotlinx-io が将来 fsync / lock を獲得したら内部差し替えで乗り換え可能（公開 API に影響なし）
   - JVM デスクトップまでは既存 java.nio 実装がほぼそのまま actual になる。iOS / Native の actual は POSIX（open/pread/fsync/flock）直叩きで、展開順 2 番の着手時コスト
 - FileObserver → expect/actual 化。iOS は kqueue / dispatch source、デスクトップ JVM は WatchService
-- ConcurrentHashMap 等 JVM 並行プリミティブの common 代替（kotlinx-atomicfu / 自前ロック）
+- 並行プリミティブも自前 expect/actual で置換する（裁定 2026-08-14: kotlinx-atomicfu 不採用・stdlib common atomics も時期尚早）
+  - 調査結果: stdlib の kotlin.concurrent.atomics は全プラットフォーム対応済みだが Experimental で、ライブラリでは将来の stdlib とバイナリ非互換になり得ると明記。公開ライブラリの daybook には採らない。Stable 化したら内部実装の置き換え候補
+  - 使用箇所は KvStore の 4 点に閉じている（journal 層はゼロ、DaybookPreferences / DaybookSharedPreferences は Android 残留組）
+  - cache の ConcurrentHashMap: expect/actual の最小 ConcurrentMutableMap。JVM actual は ConcurrentHashMap を包み、読みホットパスのロックフリー性を維持
+  - listeners の CopyOnWriteArrayList: expect/actual Lock + イミュータブルスナップショット差し替えの自前 COW リスト
+  - 配送スレッドの単一スレッド Executor: 新設不要。既存の ChangeNotificationDelivery 継ぎ目のプラットフォーム実装として位置づけ直す
+  - writeLock の synchronized: expect/actual Lock（listeners と共用）。JVM actual = ReentrantLock
+  - 1x-compat-extraction のスコープ（JVM まで）では actual は既存 java.util.concurrent コードの移設で済む。Native actual（POSIX mutex、配送スレッドは Worker 非推奨方向のため pthread 想定）は iOS 着手時
 - iOS のマルチプロセスは App Group コンテナ前提。ロックとファイル監視が App Group 越しに機能するかのスパイクが必要
 - daybook-test の KMP 化はモジュール構成の節で裁定済み（common で動く形に拡張）。SharedPreferences フェイク部分の androidMain 温存の詳細設計は残タスク
 
