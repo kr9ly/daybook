@@ -99,6 +99,43 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
 - 値変換（transform 関数）は初版のスコープに含めない。キー写像 + 型期待に絞る
 - Android の「全キー暗黙 import」（1.x の形）は写像が恒等な特殊ケースとして同じ API に位置づけ直し、移行 API を 1 本に統一する
 
+## モジュール構成（設計 2026-08-14）
+
+1.x の 3 モジュール（daybook ← daybook-coroutines ← daybook-test）に core を挿入し、既存モジュールを core の上に載せ替える再編。基本形は 5 モジュール。
+
+```
+:daybook-core                     (KMP)     ジャーナルエンジン + 独自 KV インターフェース + 型安全 API + マイグレーション基盤
+:daybook                          (Android) SharedPreferences の顔 + 相互マイグレーション
+  -> :daybook-core (api)
+:daybook-coroutines               (KMP)     Flow アダプタ
+  -> :daybook-core (api)
+:daybook-multiplatform-settings   (KMP)     Settings / ObservableSettings / FlowSettings 実装
+  -> :daybook-core (api)
+  -> :daybook-coroutines (api)    FlowSettings のため
+:daybook-test                     (KMP)     TestDaybook コンテナ
+  -> :daybook-core (api)
+```
+
+各モジュールの設計判断:
+
+- daybook-coroutines は core 依存の KMP モジュールに retarget する。1.x の SharedPreferences 向け API（asFlow / changesAsFlow）は androidMain に温存し、モジュール名を保ったまま common に開く
+- FlowSettings は daybook-multiplatform-settings が daybook-coroutines への依存を足して同居させる。multiplatform-settings に倣った coroutines 分割は肥大の兆候が出てから
+- coroutines 依存物を core に入れない境界線は 1.x と同じ規律で維持する（core は純 Kotlin・外部依存ゼロ）
+- daybook-test は KMP 化しても commonTest で動く形を維持する（InMemoryJournal は元々ファイル非依存で、素の JVM で動くという 1.x の売りは common で動くに拡張される）
+
+マイグレーション基盤の配置（:daybook-migration の別出しはしない）:
+
+- commonMain（core）: MigrationSource インターフェース + マイグレーションスキーマ定義 + 冪等実行エンジン
+- core の iosMain: NSUserDefaultsMigrationSource（suiteName 指定・prewarming ガード込み）
+- :daybook（Android アダプタ）: SharedPreferencesMigrationSource。Context が要るので core の androidMain ではなくこちらに置き、1.x の相互マイグレーション実装と同居させる
+
+expect/actual と素のインターフェースの使い分け:
+
+- expect/actual は全プラットフォームに必ず 1 つ実装がある下回りに使う（FileObserver 代替、POSIX ロック、ディレクトリ fsync 等）
+- マイグレーションソースはプラットフォームごとに非対称（iOS = NSUserDefaults / Android = SharedPreferences / JVM デスクトップ = 該当なし）なので、common のインターフェース + プラットフォーム別実装クラスを利用者が明示的に渡す形にする
+- expect と actual は同一モジュール内で完結が必須という言語制約上、実装を :daybook 側に置くマイグレーションソースはインターフェース方式一択でもある
+- core の iosMain が Foundation を触るのは外部依存ゼロと矛盾しない（Kotlin/Native の標準 interop）
+
 ## プラットフォーム展開順
 
 1. JVM デスクトップ: 最初の一歩として最も安い。すでに純 Kotlin/JVM であり、Context 依存と FileObserver を剥がすだけ。java.util.prefs への不満という実ペインもある
@@ -111,7 +148,7 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
 - FileObserver → expect/actual 化。iOS は kqueue / dispatch source、デスクトップ JVM は WatchService
 - ConcurrentHashMap 等 JVM 並行プリミティブの common 代替（kotlinx-atomicfu / 自前ロック）
 - iOS のマルチプロセスは App Group コンテナ前提。ロックとファイル監視が App Group 越しに機能するかのスパイクが必要
-- daybook-test（SharedPreferences フェイク）の扱い: Android 専任のままとするか、common 向けフェイクを新設するか
+- daybook-test の KMP 化はモジュール構成の節で裁定済み（common で動く形に拡張）。SharedPreferences フェイク部分の androidMain 温存の詳細設計は残タスク
 
 ## 1.x との関係
 
