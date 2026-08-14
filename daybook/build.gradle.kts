@@ -47,6 +47,8 @@ kotlin {
         apiVersion.set(KotlinVersion.KOTLIN_2_0)
         languageVersion.set(KotlinVersion.KOTLIN_2_0)
         jvmTarget.set(JvmTarget.JVM_11)
+        // core の内部 API（@DaybookInternalApi）を daybook 自身の成果物として一括許可する
+        optIn.add("io.github.kr9ly.daybook.internal.DaybookInternalApi")
     }
 }
 
@@ -104,6 +106,8 @@ mavenPublishing {
 }
 
 dependencies {
+    // ジャーナルエンジンの実体（モジュール構成は KMP-2.0.md を参照）
+    api(project(":daybook-core"))
     implementation(libs.kotlin.stdlib)
 
     testImplementation(libs.junit)

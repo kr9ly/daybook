@@ -3,15 +3,15 @@ package io.github.kr9ly.daybook.journal
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
-import java.io.File
+import io.github.kr9ly.daybook.io.FilePath
 import java.io.IOException
 
-// このファイルは JVM ユニットテストで実行できないため Kover の対象外
+// このファイルの OsDirectorySync は JVM ユニットテストで実行できないため Kover の対象外
 // （android.system.Os は Android ランタイム専用）。実機挙動は Instrumentation テストで検証する。
 
 /** Android 用。android.system.Os（API 21+）経由でディレクトリ fd を fsync する。 */
 internal class OsDirectorySync : DirectorySync {
-    override fun sync(directory: File) {
+    override fun sync(directory: FilePath) {
         try {
             val fd = Os.open(directory.path, OsConstants.O_RDONLY, 0)
             try {
@@ -28,4 +28,4 @@ internal class OsDirectorySync : DirectorySync {
 
 /** 実行環境に応じた [DirectorySync]。Android ランタイムでは Os、JVM では nio。 */
 internal fun defaultDirectorySync(): DirectorySync =
-    if (System.getProperty("java.vm.name") == "Dalvik") OsDirectorySync() else NioDirectorySync()
+    if (System.getProperty("java.vm.name") == "Dalvik") OsDirectorySync() else platformDirectorySync()

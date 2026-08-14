@@ -1,6 +1,7 @@
 package io.github.kr9ly.daybook.prefs
 
 import android.content.SharedPreferences
+import io.github.kr9ly.daybook.kv.ChangeNotificationDelivery
 import io.github.kr9ly.daybook.kv.KvOperation
 import io.github.kr9ly.daybook.kv.KvStore
 import java.io.IOException

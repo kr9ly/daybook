@@ -58,6 +58,6 @@ public object DaybookTestBridge {
             }
             writeObserver(clearRequested, changes)
         }
-        return DaybookSharedPreferences(store) { action -> delivery(action) }
+        return DaybookSharedPreferences(store) { action -> delivery(Runnable { action() }) }
     }
 }

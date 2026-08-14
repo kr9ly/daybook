@@ -2,6 +2,7 @@ package io.github.kr9ly.daybook.prefs
 
 import android.content.SharedPreferences
 import android.os.Looper
+import io.github.kr9ly.daybook.io.FilePath
 import io.github.kr9ly.daybook.journal.FileSink
 import io.github.kr9ly.daybook.journal.JournalSink
 import io.github.kr9ly.daybook.kv.KvStore
@@ -33,7 +34,7 @@ class DaybookSharedPreferencesTest {
     private var store: KvStore? = null
 
     private fun openPrefs(): DaybookSharedPreferences {
-        val opened = KvStore.open(tmp.root, "prefs")
+        val opened = KvStore.open(FilePath(tmp.root.path), "prefs")
         store = opened
         return DaybookSharedPreferences(opened)
     }
@@ -357,7 +358,7 @@ class DaybookSharedPreferencesTest {
     fun commitWithDiskFailure_returnsFalseWithoutApplyingOrNotifying() {
         var sink: FailingSink? = null
         val failingStore = KvStore.open(
-            directory = tmp.root,
+            directory = FilePath(tmp.root.path),
             name = "prefs",
             sinkFactory = { FailingSink(FileSink(it)).also { s -> sink = s } },
         )

@@ -1,0 +1,102 @@
+package io.github.kr9ly.daybook.journal
+
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.IoException
+import io.github.kr9ly.daybook.io.deleteFile
+import io.github.kr9ly.daybook.io.listDirectory
+import io.github.kr9ly.daybook.io.mkdirs
+import io.github.kr9ly.daybook.io.renameFile
+
+/**
+ * 世代番号つきジャーナルファイルの命名・現在世代の解決・世代の入れ替え。
+ *
+ * ファイル名は `<name>.<世代番号>.journal`、compaction が書き出す一時ファイルは
+ * `<name>.<世代番号>.journal.tmp`。世代番号は 1 始まりで単調に増える。
+ *
+ * 電源断で rename が巻き戻っても安全なのは、compaction が次の順序を守るため:
+ *
+ * 1. 一時ファイルの内容を fsync してから rename を発行する
+ * 2. 旧世代の削除は rename より後に発行する
+ *
+ * この順序があると「世代ファイルがひとつもないのに一時ファイルがある」状態は、
+ * 旧世代の削除がディスクに届いた後 — すなわち一時ファイルの内容が完全に永続化された
+ * 後 — にしか起こりえない。このときに限り一時ファイルを正式な世代として採用する。
+ *
+ * ただしこの論証は「世代ファイルの不在 = 削除が届いた」を前提にしており、
+ * 世代ファイルの作成自体が永続化される前の電源断（作成直後の孤児化）は守れない。
+ * SYNC モードはこの穴を [DirectorySync] によるディレクトリ fsync で塞ぐ
+ * （ASYNC モードは電源断契約が緩いため、この採用プロトコルだけで運用する）。
+ *
+ * 旧世代の削除はこのクラスでは行わない。呼び出し側が新世代のオープンに成功してから
+ * [deleteOlderThan] を呼ぶ（最新世代が開けなかったとき、直前の世代を道連れにしないため）。
+ */
+internal class JournalDirectory(private val dir: FilePath, private val name: String) {
+
+    /** 世代番号に対応する正式なジャーナルファイル。 */
+    fun fileFor(generation: Long): FilePath = dir.resolve("$name.$generation$GENERATION_SUFFIX")
+
+    /** 世代番号に対応する compaction 書き出し先の一時ファイル。 */
+    fun tempFor(generation: Long): FilePath = dir.resolve("$name.$generation$TEMP_SUFFIX")
+
+    /** プロセス間排他用の固定名ロックファイル。世代ファイルと違い rename されない。 */
+    fun lockFile(): FilePath = dir.resolve("$name.lock")
+
+    /**
+     * 現在の世代番号を決定する。
+     *
+     * - 世代ファイルがあれば最大の世代番号（一時ファイルは全て未完了の残骸として削除）
+     * - 世代ファイルがなく一時ファイルだけがあれば、最大世代の一時ファイルを採用して
+     *   正式名へ rename（クラス KDoc の順序保証により内容の完全性が導ける）
+     * - どちらもなければ [FIRST_GENERATION]
+     */
+    fun resolveCurrentGeneration(): Long {
+        mkdirs(dir)
+        val generations = scan(GENERATION_SUFFIX)
+        val temps = scan(TEMP_SUFFIX)
+        if (generations.isNotEmpty()) {
+            temps.values.forEach { deleteFile(it) }
+            return generations.keys.max()
+        }
+        val adopted = temps.keys.maxOrNull() ?: return FIRST_GENERATION
+        temps.filterKeys { it != adopted }.values.forEach { deleteFile(it) }
+        commit(adopted)
+        return adopted
+    }
+
+    /** 一時ファイルを正式な世代ファイルへアトミック rename する。 */
+    fun commit(generation: Long) {
+        val temp = tempFor(generation)
+        val file = fileFor(generation)
+        if (!renameFile(temp, file)) {
+            throw IoException("failed to rename ${temp.name} to ${file.name}")
+        }
+    }
+
+    /** 指定世代より古い世代ファイルを削除する。 */
+    fun deleteOlderThan(generation: Long) {
+        scan(GENERATION_SUFFIX).filterKeys { it < generation }.values.forEach { deleteFile(it) }
+    }
+
+    /** ディレクトリ内の `<name>.<世代番号><suffix>` を世代番号 → ファイルで列挙する。 */
+    private fun scan(suffix: String): Map<Long, FilePath> {
+        val entries = listDirectory(dir) ?: throw IoException("cannot list directory: $dir")
+        val prefix = "$name."
+        return entries.mapNotNull { fileName ->
+            if (fileName.length <= prefix.length + suffix.length ||
+                !fileName.startsWith(prefix) || !fileName.endsWith(suffix)
+            ) {
+                return@mapNotNull null
+            }
+            fileName.substring(prefix.length, fileName.length - suffix.length)
+                .toLongOrNull()
+                ?.takeIf { it >= FIRST_GENERATION }
+                ?.let { it to dir.resolve(fileName) }
+        }.toMap()
+    }
+
+    companion object {
+        const val FIRST_GENERATION = 1L
+        private const val GENERATION_SUFFIX = ".journal"
+        private const val TEMP_SUFFIX = ".journal.tmp"
+    }
+}

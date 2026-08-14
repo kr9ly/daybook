@@ -2,6 +2,9 @@ package io.github.kr9ly.daybook
 
 import android.content.Context
 import android.content.SharedPreferences
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.journal.FileObserverJournalWatcherFactory
+import io.github.kr9ly.daybook.journal.defaultDirectorySync
 import io.github.kr9ly.daybook.kv.KvStore
 import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 import java.io.File
@@ -117,9 +120,11 @@ internal object DaybookPreferencesCache {
                 return existing.prefs
             }
             val store = KvStore.open(
-                directory = daybookDir(context),
+                directory = FilePath(daybookDir(context).path),
                 name = name,
                 multiProcess = multiProcess,
+                directorySync = defaultDirectorySync(),
+                watcherFactory = if (multiProcess) FileObserverJournalWatcherFactory() else null,
             )
             if (importFromSharedPreferences) {
                 DaybookMigration.importInto(context, name, store, deleteSource = false)
@@ -139,7 +144,11 @@ internal object DaybookPreferencesCache {
         validateName(name)
         synchronized(entries) {
             entries[name]?.let { return body(it.store) }
-            val store = KvStore.open(directory = daybookDir(context), name = name)
+            val store = KvStore.open(
+                directory = FilePath(daybookDir(context).path),
+                name = name,
+                directorySync = defaultDirectorySync(),
+            )
             return try {
                 body(store)
             } finally {

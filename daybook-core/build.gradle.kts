@@ -26,9 +26,25 @@ kotlin {
     }
 
     sourceSets {
+        // core 自身のコードも @DaybookInternalApi 付き宣言を触るため、モジュール単位で opt-in する
+        all {
+            languageSettings.optIn("io.github.kr9ly.daybook.internal.DaybookInternalApi")
+        }
+        commonMain {
+            dependencies {
+                // サポートライン（2.0.0）で明示宣言する方針（gradle.properties を参照）
+                implementation(libs.kotlin.stdlib)
+            }
+        }
         commonTest {
             dependencies {
                 implementation(kotlin("test"))
+            }
+        }
+        jvmTest {
+            dependencies {
+                // 1.x 由来の JVM テストは JUnit4（TemporaryFolder ルール等）で書かれている
+                implementation(libs.junit)
             }
         }
     }

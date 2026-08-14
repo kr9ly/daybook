@@ -1,8 +1,7 @@
 package io.github.kr9ly.daybook.journal
 
 import android.os.FileObserver
-import java.io.Closeable
-import java.io.File
+import io.github.kr9ly.daybook.io.FilePath
 
 // このファイルは JVM ユニットテストで実行できないため Kover の対象外
 // （FileObserver の inotify は Robolectric でも実質動かない。DESIGN.md のテスト戦略を参照）。
@@ -10,7 +9,7 @@ import java.io.File
 
 /** Android 用。FileObserver（inotify）でディレクトリを監視する。 */
 internal class FileObserverJournalWatcherFactory : JournalWatcherFactory {
-    override fun watch(directory: File, onChange: () -> Unit): Closeable {
+    override fun watch(directory: FilePath, onChange: () -> Unit): AutoCloseable {
         // File を取るコンストラクタは API 29+ のため String 版を使う（minSdk 21）
         @Suppress("DEPRECATION")
         val observer = object : FileObserver(
@@ -26,6 +25,6 @@ internal class FileObserverJournalWatcherFactory : JournalWatcherFactory {
             }
         }
         observer.startWatching()
-        return Closeable { observer.stopWatching() }
+        return AutoCloseable { observer.stopWatching() }
     }
 }

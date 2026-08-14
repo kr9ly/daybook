@@ -3,6 +3,7 @@ package io.github.kr9ly.daybook.journal
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kr9ly.daybook.kv.KvStore
+import io.github.kr9ly.daybook.kv.open
 import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertEquals

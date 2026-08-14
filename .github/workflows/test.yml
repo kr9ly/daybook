@@ -23,7 +23,7 @@ jobs:
 
       # JVM ユニットテストのみ（instrumented テストはエミュレータが要るので CI では走らせない）
       - name: Run unit tests with coverage
-        run: ./gradlew :daybook:koverXmlReportDebug :daybook-coroutines:koverXmlReportDebug :daybook-test:koverXmlReportDebug
+        run: ./gradlew :daybook-core:koverXmlReport :daybook:koverXmlReportDebug :daybook-coroutines:koverXmlReportDebug :daybook-test:koverXmlReportDebug
 
       - name: Upload test reports
         if: failure()
@@ -32,6 +32,7 @@ jobs:
           name: test-reports
           path: |
             daybook/build/reports/tests/
+            daybook-core/build/reports/tests/
             daybook-coroutines/build/reports/tests/
             daybook-test/build/reports/tests/
 
@@ -43,6 +44,7 @@ jobs:
           mkdir -p .github/badges
           python3 .github/scripts/coverage_badge.py \
             daybook/build/reports/kover/reportDebug.xml \
+            daybook-core/build/reports/kover/report.xml \
             daybook-coroutines/build/reports/kover/reportDebug.xml \
             daybook-test/build/reports/kover/reportDebug.xml \
             .github/badges/coverage.svg
