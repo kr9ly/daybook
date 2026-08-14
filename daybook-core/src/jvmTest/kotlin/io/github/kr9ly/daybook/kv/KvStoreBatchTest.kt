@@ -35,7 +35,7 @@ class KvStoreBatchTest {
             journal.replayedRecords.map(KvOperationCodec::decode)
         }
 
-    private class RecordingListener(expectedCount: Int) : KvChangeListener {
+    private class RecordingListener(expectedCount: Int) : DaybookChangeListener {
         val events = mutableListOf<Pair<String, Any?>>()
         private val latch = CountDownLatch(expectedCount)
 
@@ -110,7 +110,7 @@ class KvStoreBatchTest {
                 store.writeBatch(
                     listOf(
                         KvOperation.Put("ok", 1),
-                        KvOperation.Put("bad", 3.0), // Double は非対応
+                        KvOperation.Put("bad", 'x'), // Char は非対応
                     ),
                 )
             }

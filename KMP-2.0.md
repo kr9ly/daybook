@@ -66,6 +66,14 @@ multiplatform-settings 側も DataStore アダプタを別モジュールにし�
 Settings インターフェースには変更リスナーが基本形に含まれず（ObservableSettings は別 IF）、1.x PreferenceProperty が SharedPreferences から借りていた能力（リスナー経由の asFlow 等）を Settings の上では揃えられない。
 Settings 利用者向けの型安全ラッパーはエコシステム既存資産がそのまま動くため、daybook 側で Settings 対象の型安全 API を持つ必要もない。
 
+### 型安全 API の公開形（裁定 2026-08-14、実装済み）
+
+- 顔の名前は Daybook（interface）、型安全プロパティは DaybookProperty。:daybook 残留の PreferenceProperty と名前を分けて誤用を防ぎ、KvStore は公開昇格せず internal ラッパー（KvStoreDaybook）で包む — エンジンの内部進化の自由を残す
+- リスナーは DaybookChangeListener（値つき、newValue: Any? = 対応 7 種のいずれか）。sealed ラッパーは採らず、裁定 2026-08-03 の素の型主義に合わせる。KvChangeListener 公開裁定（1.x 持ち越し）はこの形で消化
+- 書き込みは edit(block) に集約し 1 ブロック = 1 ジャーナルレコード。Android 顔との意図的な違い: 呼び出し順どおり適用（clear の先頭並べ替えなし）・操作ベース通知（同値 put も通知）・IO 失敗は IOException 伝播（黙って破棄しない）
+- ファイルバックドなストアを開く公開 API は本節のスコープ外。オプション設計（syncMode・multiProcess・マイグレーションスキーマ）と watcher の JVM 実装（WatchService）を巻き込むため別途設計する。当面 Daybook の入手手段は daybook-test の in-memory コンテナ
+- Double のエンジン対応（コーデック TYPE_DOUBLE=7、raw bits 8B）もこの実装で導入。SharedPreferences 顔（:daybook）の Double は現行コードが fail-fast（export 時 IllegalArgumentException）で、これは裁定どおりの既定。緩和オプション（顔ごとの互換ポリシー）は未実装
+
 ### 論点: 値型の不一致
 
 `Settings` は Int/Long/String/Float/Double/Boolean を持ち、StringSet を持たない。

@@ -68,7 +68,7 @@ class KvStoreMultiProcessTest {
     private class Events {
         private val list = Collections.synchronizedList(mutableListOf<Pair<String, Any?>>())
 
-        val listener = KvChangeListener { key, newValue -> list.add(key to newValue) }
+        val listener = DaybookChangeListener { key, newValue -> list.add(key to newValue) }
 
         fun await(count: Int, timeoutMs: Long = 5000): List<Pair<String, Any?>> {
             val deadline = System.currentTimeMillis() + timeoutMs

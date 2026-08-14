@@ -67,7 +67,7 @@ class KvStoreInMemoryTest {
     @Test
     fun unsupportedValueType_isRejectedLikeFileBackedStore() {
         val store = KvStore.openInMemory()
-        assertThrows(IllegalArgumentException::class.java) { store.put("key", 3.14) }
+        assertThrows(IllegalArgumentException::class.java) { store.put("key", 'x') }
     }
 
     @Test

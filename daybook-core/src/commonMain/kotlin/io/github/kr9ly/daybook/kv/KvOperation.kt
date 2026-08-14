@@ -25,8 +25,9 @@ public sealed interface KvOperation {
     /**
      * キーへの値の設定。
      *
-     * [value] は SharedPreferences 互換の 6 種に限る:
-     * `String` / `Int` / `Long` / `Float` / `Boolean` / `Set<String>`。
+     * [value] は対応 7 種に限る:
+     * `String` / `Set<String>` / `Int` / `Long` / `Float` / `Double` / `Boolean`
+     * （SharedPreferences 互換 6 種 + Double。裁定は KMP-2.0.md の値型の節を参照）。
      * 型をラッパーで包まず [Any] で持つのは、インメモリキャッシュが同じ表現で
      * 値を保持するため（エンコード境界での型検査は [KvOperationCodec] が行う）。
      */

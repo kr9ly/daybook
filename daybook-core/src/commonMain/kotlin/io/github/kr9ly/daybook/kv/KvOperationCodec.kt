@@ -28,8 +28,8 @@ internal class KvEncodingException(message: String) : IoException(message)
  * BATCH や SNAPSHOT_BOUNDARY を要素に含むバイト列は不正。
  *
  * 文字列は `[length 4B][UTF-8 bytes]`、`Set<String>` は `[count 4B][文字列...]`。
- * `Int`/`Long` はそのままのビット幅、`Float` は raw bits 4B、`Boolean` は 1B(0/1)。
- * 整数はすべてビッグエンディアン（ジャーナル層と同じ）。
+ * `Int`/`Long` はそのままのビット幅、`Float` は raw bits 4B、`Double` は raw bits 8B、
+ * `Boolean` は 1B(0/1)。整数はすべてビッグエンディアン（ジャーナル層と同じ）。
  */
 internal object KvOperationCodec {
 
@@ -45,6 +45,7 @@ internal object KvOperationCodec {
     private const val TYPE_FLOAT = 4
     private const val TYPE_BOOLEAN = 5
     private const val TYPE_STRING_SET = 6
+    private const val TYPE_DOUBLE = 7
 
     /**
      * 操作を payload に変換する。
@@ -130,6 +131,12 @@ internal object KvOperationCodec {
                 out.write(TYPE_FLOAT)
                 writeInt(out, value.toRawBits())
             }
+            is Double -> {
+                out.write(TYPE_DOUBLE)
+                val bits = value.toRawBits()
+                writeInt(out, (bits ushr 32).toInt())
+                writeInt(out, bits.toInt())
+            }
             is Boolean -> {
                 out.write(TYPE_BOOLEAN)
                 out.write(if (value) 1 else 0)
@@ -146,7 +153,7 @@ internal object KvOperationCodec {
             }
             else -> throw IllegalArgumentException(
                 "unsupported value type: ${value::class.qualifiedName} " +
-                    "(String/Int/Long/Float/Boolean/Set<String> only)",
+                    "(String/Int/Long/Float/Double/Boolean/Set<String> only)",
             )
         }
     }
@@ -156,6 +163,9 @@ internal object KvOperationCodec {
         TYPE_INT -> reader.readInt()
         TYPE_LONG -> (reader.readInt().toLong() shl 32) or (reader.readInt().toLong() and 0xFFFFFFFFL)
         TYPE_FLOAT -> Float.fromBits(reader.readInt())
+        TYPE_DOUBLE -> Double.fromBits(
+            (reader.readInt().toLong() shl 32) or (reader.readInt().toLong() and 0xFFFFFFFFL),
+        )
         TYPE_BOOLEAN -> when (val b = reader.readByte()) {
             0 -> false
             1 -> true

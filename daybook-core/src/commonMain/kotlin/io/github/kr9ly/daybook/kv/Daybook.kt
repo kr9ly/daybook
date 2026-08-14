@@ -1,0 +1,119 @@
+package io.github.kr9ly.daybook.kv
+
+/**
+ * daybook ストアの変更リスナー。
+ *
+ * [onChange] は Put で新値、Remove / Clear で null を受け取る。値の型は対応 7 種
+ * （String / Set<String> / Int / Long / Float / Double / Boolean）のいずれか。
+ * 値まで渡すのは、リスナー内で再取得する際の読み出し競合を避けるため。
+ *
+ * 通知は状態の差分ではなく操作ベース: 同じ値の Put や存在しないキーの Remove も
+ * ジャーナルに追記され、そのまま通知される。clear は消えた各キーへの (key, null) として届く。
+ * 配送は store ごとの専用スレッドで、書き込み順に直列に行われる。
+ * 書き込みロックの外で配送されるため、リスナー内から store を再操作してもデッドロックしない。
+ */
+public fun interface DaybookChangeListener {
+    public fun onChange(key: String, newValue: Any?)
+}
+
+/**
+ * daybook ストアの共通の顔。
+ *
+ * 読み出しはすべてインメモリキャッシュへの同期アクセス（ディスク IO なし）。
+ * getter はキー不在で default、格納値の型違いで ClassCastException。
+ * 書き込みは [edit] に集約し、1 ブロック = 1 ジャーナルレコードのアトミックなバッチになる。
+ *
+ * Android の SharedPreferences 互換の顔（:daybook）との意図的な違い:
+ *
+ * - edit は呼び出し順どおりに適用・通知される（clear を先頭に並べ替える AOSP 模倣をしない）
+ * - 同値の put や不在キーの remove も操作として書かれ、そのまま通知される（操作ベース）
+ * - 書き込みの IO 失敗は黙って破棄せず IOException として伝播する
+ *
+ * インスタンスの生成は当面 daybook-test の in-memory コンテナ経由。
+ * ファイルバックドなストアを開く公開 API はオプション設計（syncMode・multiProcess・
+ * マイグレーションスキーマ）と合わせて別途設計する。
+ */
+public interface Daybook : AutoCloseable {
+
+    /** [key] の文字列値。不在なら [default]。 */
+    public fun getString(key: String, default: String?): String?
+
+    /**
+     * [key] の string-set 値。不在なら [default]。
+     * 返り値は防御コピーで、呼び出し側の変更が以後の読み出しを壊すことはない。
+     */
+    public fun getStringSet(key: String, default: Set<String>?): Set<String>?
+
+    /** [key] の int 値。不在なら [default]。 */
+    public fun getInt(key: String, default: Int): Int
+
+    /** [key] の long 値。不在なら [default]。 */
+    public fun getLong(key: String, default: Long): Long
+
+    /** [key] の float 値。不在なら [default]。 */
+    public fun getFloat(key: String, default: Float): Float
+
+    /** [key] の double 値。不在なら [default]。 */
+    public fun getDouble(key: String, default: Double): Double
+
+    /** [key] の boolean 値。不在なら [default]。 */
+    public fun getBoolean(key: String, default: Boolean): Boolean
+
+    /** キーが設定されているか。 */
+    public fun contains(key: String): Boolean
+
+    /**
+     * 複数の書き込みを 1 つのアトミックなバッチとして適用する。
+     *
+     * ブロック内の操作は呼び出し順に記録され、ブロック完了時に 1 ジャーナルレコードとして
+     * 書かれる。クラッシュ時は全操作が残るか全操作が消えるかの二択で、他プロセスからも
+     * 途中状態は見えない。何も操作しないブロックは何も書かない。
+     *
+     * ブロックに渡る [DaybookEditor] はブロック内でだけ有効で、単一スレッドで使う。
+     * 値の型検査はブロック完了時に行われ、違反は IllegalArgumentException。
+     * ディスク書き込みの失敗は IOException として伝播する。
+     */
+    public fun edit(block: DaybookEditor.() -> Unit)
+
+    /** 変更リスナーを登録する。強参照で保持し、[removeChangeListener] まで解放しない。 */
+    public fun addChangeListener(listener: DaybookChangeListener)
+
+    /** 変更リスナーを解除する。 */
+    public fun removeChangeListener(listener: DaybookChangeListener)
+}
+
+/**
+ * [Daybook.edit] のバッチに書き込みを積むレシーバ。
+ *
+ * nullable な put の `null` はキーの削除（[remove] と等価）。
+ * Set は積んだ時点で防御コピーされ、呼び出し後の変更はバッチに影響しない。
+ */
+public interface DaybookEditor {
+
+    /** [key] へ文字列を設定する。`null` はキーの削除。 */
+    public fun putString(key: String, value: String?)
+
+    /** [key] へ string-set を設定する。`null` はキーの削除。 */
+    public fun putStringSet(key: String, value: Set<String>?)
+
+    /** [key] へ int を設定する。 */
+    public fun putInt(key: String, value: Int)
+
+    /** [key] へ long を設定する。 */
+    public fun putLong(key: String, value: Long)
+
+    /** [key] へ float を設定する。 */
+    public fun putFloat(key: String, value: Float)
+
+    /** [key] へ double を設定する。 */
+    public fun putDouble(key: String, value: Double)
+
+    /** [key] へ boolean を設定する。 */
+    public fun putBoolean(key: String, value: Boolean)
+
+    /** [key] を削除する。 */
+    public fun remove(key: String)
+
+    /** 全キーを削除する。 */
+    public fun clear()
+}

@@ -55,6 +55,21 @@ class KvOperationCodecTest {
     }
 
     @Test
+    fun putDouble_roundTrip() {
+        assertRoundTrip(KvOperation.Put("key", 0.0))
+        assertRoundTrip(KvOperation.Put("key", -1.5))
+        assertRoundTrip(KvOperation.Put("key", Double.NEGATIVE_INFINITY))
+        assertRoundTrip(KvOperation.Put("key", Double.MIN_VALUE))
+        // 上位・下位 32bit の合成を検証する非対称なビットパターン
+        assertRoundTrip(KvOperation.Put("key", Double.fromBits(0x12345678_9ABCDEF0L)))
+        // NaN は equals で比較できないため raw bits で検証（-0.0 も bits まで保存されることを含む）
+        val nan = roundTrip(KvOperation.Put("key", Double.NaN)) as KvOperation.Put
+        assertEquals(Double.NaN.toRawBits(), (nan.value as Double).toRawBits())
+        val negativeZero = roundTrip(KvOperation.Put("key", -0.0)) as KvOperation.Put
+        assertEquals((-0.0).toRawBits(), (negativeZero.value as Double).toRawBits())
+    }
+
+    @Test
     fun putBoolean_roundTrip() {
         assertRoundTrip(KvOperation.Put("key", true))
         assertRoundTrip(KvOperation.Put("key", false))
@@ -121,7 +136,7 @@ class KvOperationCodecTest {
     @Test
     fun encode_rejectsUnsupportedValueType() {
         assertThrows(IllegalArgumentException::class.java) {
-            KvOperationCodec.encode(KvOperation.Put("key", 1.0)) // Double は非対応
+            KvOperationCodec.encode(KvOperation.Put("key", 'x')) // Char は非対応
         }
     }
 

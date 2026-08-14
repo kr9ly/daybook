@@ -26,7 +26,7 @@ class KvStoreTest {
         File(tmp.root, "store.$generation.journal")
 
     /** 変更イベントを記録し、期待件数まで待てるリスナー。 */
-    private class RecordingListener(expectedCount: Int) : KvChangeListener {
+    private class RecordingListener(expectedCount: Int) : DaybookChangeListener {
         val events = mutableListOf<Pair<String, Any?>>()
         private val latch = CountDownLatch(expectedCount)
 
@@ -89,7 +89,7 @@ class KvStoreTest {
     fun putUnsupportedType_isRejectedWithoutJournaling() {
         openStore().use { store ->
             assertThrows(IllegalArgumentException::class.java) {
-                store.put("key", 3.0) // Double は非対応
+                store.put("key", 'x') // Char は非対応
             }
         }
         // 型検査は追記前に行われるため、ジャーナルに不正レコードは残らない

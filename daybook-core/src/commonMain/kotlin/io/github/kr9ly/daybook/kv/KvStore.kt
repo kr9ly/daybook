@@ -22,21 +22,6 @@ import io.github.kr9ly.daybook.journal.platformDirectorySync
 import kotlin.concurrent.Volatile
 
 /**
- * KV ストアの変更リスナー。
- *
- * [onChange] は Put で新値、Remove / Clear で null を受け取る。
- * 値まで渡すのは、リスナー内で再取得する際の読み出し競合を避けるため
- * （SharedPreferences の OnSharedPreferenceChangeListener はキーしか渡さない）。
- *
- * 配送は store ごとの専用スレッドで、書き込み順に直列に行われる。
- * 書き込みロックの外で配送されるため、リスナー内から store を再操作してもデッドロックしない。
- */
-@DaybookInternalApi
-public fun interface KvChangeListener {
-    public fun onChange(key: String, newValue: Any?)
-}
-
-/**
  * compaction の一時停止点。テストがここで例外を投げることで、
  * 「compaction のこの位置でプロセスがクラッシュした」状況を決定的に注入する。
  * フックが例外を投げた後の store は不定であり、開き直して復旧を検証する使い方をする。
@@ -117,7 +102,7 @@ public class KvStore private constructor(
      * 読み出しは volatile 読みだけでスナップショットが取れる。
      */
     @Volatile
-    private var listeners: List<KvChangeListener> = emptyList()
+    private var listeners: List<DaybookChangeListener> = emptyList()
     private val listenersLock = Lock()
 
     private val dispatcher = NotificationDispatchThread()
@@ -134,8 +119,7 @@ public class KvStore private constructor(
     /**
      * キーへ値を設定する。
      *
-     * [value] は SharedPreferences 互換の 6 種
-     * （String / Int / Long / Float / Boolean / Set<String>）に限る。
+     * [value] は対応 7 種（String / Set<String> / Int / Long / Float / Double / Boolean）に限る。
      * それ以外は [IllegalArgumentException]（呼び出し側のバグのため）。
      * Set は防御的にコピーして保持する。
      */
@@ -176,14 +160,14 @@ public class KvStore private constructor(
     }
 
     /** 変更リスナーを登録する。強参照で保持し、[removeListener] まで解放しない。 */
-    public fun addListener(listener: KvChangeListener) {
+    public fun addListener(listener: DaybookChangeListener) {
         listenersLock.withLock {
             listeners = listeners + listener
         }
     }
 
     /** 変更リスナーを解除する。 */
-    public fun removeListener(listener: KvChangeListener) {
+    public fun removeListener(listener: DaybookChangeListener) {
         listenersLock.withLock {
             listeners = listeners - listener
         }
