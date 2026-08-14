@@ -144,7 +144,11 @@ expect/actual と素のインターフェースの使い分け:
 
 ## 技術的コスト項目
 
-- java.io / java.nio（FileLock）→ kotlinx-io or okio への移行 + POSIX ロック（flock/fcntl）の expect/actual
+- java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
+  - 調査結果: kotlinx-io の FileSystem は fsync・ディレクトリ fsync・FileLock・位置指定読みの 4 つを欠き、これらが daybook の耐久性・マルチプロセス保証の本体。かつ API が experimental（unstable 明記）
+  - 1.x が既に JournalSink（fsync 抽象）・DirectorySync・InterProcessLock・JournalWatcher の継ぎ目を持つため、追加で必要な抽象は JournalFile / JournalDirectory が生で触っている「位置指定読み + fsync 付き append 書き + ディレクトリ操作」の小さな expect/actual のみ
+  - core の外部依存ゼロを KMP 化後も維持できる。kotlinx-io が将来 fsync / lock を獲得したら内部差し替えで乗り換え可能（公開 API に影響なし）
+  - JVM デスクトップまでは既存 java.nio 実装がほぼそのまま actual になる。iOS / Native の actual は POSIX（open/pread/fsync/flock）直叩きで、展開順 2 番の着手時コスト
 - FileObserver → expect/actual 化。iOS は kqueue / dispatch source、デスクトップ JVM は WatchService
 - ConcurrentHashMap 等 JVM 並行プリミティブの common 代替（kotlinx-atomicfu / 自前ロック）
 - iOS のマルチプロセスは App Group コンテナ前提。ロックとファイル監視が App Group 越しに機能するかのスパイクが必要
