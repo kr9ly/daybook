@@ -1,5 +1,8 @@
 [versions]
 agp = "9.3.1"
+# KMP モジュール（daybook-core）用の KGP。AGP 9 built-in Kotlin と同一ビルドで共存させるため
+# 2.3.0+ 推奨ライン（kotlin-tooling-agp9-migration マトリクス）に合わせる
+kotlin = "2.3.20"
 # 消費側サポートライン: Kotlin 2.0+ / minSdk 21+。
 # 宣言依存は「必要 API を持つ最古の安定版」= 消費側への床。新しい環境では上に解決される。
 kotlin-stdlib = "2.0.0"
@@ -22,5 +25,6 @@ androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "a
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 maven-publish = { id = "com.vanniktech.maven.publish", version = "0.37.0" }
 kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.9" }

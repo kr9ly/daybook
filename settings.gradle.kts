@@ -15,6 +15,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "daybook"
+include(":daybook-core")
 include(":daybook")
 include(":daybook-coroutines")
 include(":daybook-test")
