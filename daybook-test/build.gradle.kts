@@ -2,41 +2,68 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 plugins {
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.android.kmp.library)
+    alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.maven.publish)
     alias(libs.plugins.kover)
-}
-
-android {
-    namespace = "io.github.kr9ly.daybook.test"
-    compileSdk = 36
-
-    defaultConfig {
-        minSdk = 21
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    testOptions {
-        unitTests {
-            all {
-                it.useJUnit()
-            }
-        }
-    }
 }
 
 kotlin {
     // 公開 API の意図しない露出を防ぐ（public は明示宣言のみ）
     explicitApi()
+
     compilerOptions {
         // 消費側の Kotlin 2.0 コンパイラが読めるメタデータを出す
         apiVersion.set(KotlinVersion.KOTLIN_2_0)
         languageVersion.set(KotlinVersion.KOTLIN_2_0)
-        jvmTarget.set(JvmTarget.JVM_11)
+    }
+
+    // common の TestDaybook（core の KV / 型安全 API 向けコンテナ）は型安全 API の
+    // 新設と同時に開く。それまで jvm ターゲットは KMP 化の成立だけを担保する
+    jvm {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_11)
+        }
+    }
+
+    androidLibrary {
+        namespace = "io.github.kr9ly.daybook.test"
+        compileSdk = 36
+        minSdk = 21
+
+        compilations.configureEach {
+            compileTaskProvider.configure {
+                compilerOptions {
+                    jvmTarget.set(JvmTarget.JVM_11)
+                }
+            }
+        }
+
+        // テストは素の JVM で走る（Robolectric 非依存であることがこのモジュールの検証対象）
+        withHostTestBuilder {}
+    }
+
+    sourceSets {
+        commonMain {
+            dependencies {
+                // サポートライン（2.0.0）で明示宣言する方針（gradle.properties を参照）
+                implementation(libs.kotlin.stdlib)
+                api(project(":daybook-core"))
+            }
+        }
+        androidMain {
+            dependencies {
+                // 1.x の SharedPreferences フェイク（TestDaybook）の依存先
+                api(project(":daybook"))
+            }
+        }
+        getByName("androidHostTest") {
+            dependencies {
+                implementation(libs.junit)
+                implementation(project(":daybook-coroutines"))
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
     }
 }
 
@@ -73,14 +100,4 @@ mavenPublishing {
             developerConnection.set("scm:git:ssh://git@github.com/kr9ly/daybook.git")
         }
     }
-}
-
-dependencies {
-    implementation(libs.kotlin.stdlib)
-    api(project(":daybook"))
-
-    // テストは素の JVM で走る（Robolectric 非依存であることがこのモジュールの検証対象）
-    testImplementation(libs.junit)
-    testImplementation(project(":daybook-coroutines"))
-    testImplementation(libs.kotlinx.coroutines.test)
 }
