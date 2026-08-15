@@ -147,6 +147,32 @@ daybook の 6 型は SharedPreferences 互換（String/StringSet/Int/Long/Float/
 - 1.x で無条件の不変条件だった SharedPreferences 往復可能性は、2.0 では「既定で守られるオプション」に位置づけを変える。Android SharedPreferences ↔ daybook 1.x ↔ daybook 2.0 という互換チェーンの維持は設計制約としない（裁定 2026-08-03）
 - StringSet 側も対称に扱う: Settings の顔から StringSet キーにアクセスしたときの挙動（不可視 / エラー / エンコードして可視化）を同じポリシー軸に載せる
 
+### daybook-multiplatform-settings アダプタ（裁定・実装 2026-08-15）
+
+案 C の別出しアダプタモジュールを新設した。依存は multiplatform-settings 1.3.0（+ 同版 -coroutines）、
+ターゲットは core と同構成（jvm / android / linuxX64〔検証用〕/ iosArm64 / iosSimulatorArm64）。
+
+- 公開型は DaybookSettings（ObservableSettings 実装）と DaybookFlowSettings（FlowSettings 実装、
+  @ExperimentalSettingsApi は m-s 側の宣言に従い伝播）。どちらも開いた Daybook を包む薄いアダプタで、
+  ネイティブ実装（SharedPreferencesSettings 等）と同じ「コンストラクタに委譲先を渡す」形。
+  Settings.Factory は提供しない — create(name) の文字列 name がスキーマ必須の open と整合しないため
+- 裁定: Settings.keys / size の実現のため公開 Daybook に keys: Set<String> を追加（internal ブリッジ案は不採用）。
+  列挙は SharedPreferences.getAll / Settings.keys と同格の KV ストアの自然な公開能力で、
+  2.0 未リリースの今が追加の最安点。スナップショット意味論を KDoc に明記
+- 裁定: リスナーは値変化ベースにデデュープする（操作ベースのパススルー案は不採用）。
+  m-s エコシステムの実装（Android = AOSP の同値スキップ、Apple = 前値比較)は値変化ベースが事実上の契約で、
+  「1 行差し替えで導入・無傷で撤退」に忠実にする。SharedPreferences 顔が AOSP 挙動を模倣するのと同型の
+  「顔ごとにエコシステム契約を再現」。実装は登録時に現在値を捕捉し、格納値（Any?、不在は null）の equals 比較
+- 型互換ポリシーは fail-fast 既定をそのまま適用: string-set キーは keys / size に見えるが型付き getter で
+  ClassCastException。緩和オプションは未実装（prefs 顔の Double と同じ状態）。
+  リスナー経路だけは例外にできない — core の配送スレッドはリスナー例外を catch せず、投げると配送が死ぬため、
+  登録時の型不一致は登録スタックで即 CCE、登録後に書かれた不一致値の通知は配送しない（KDoc 明記）
+- FlowSettings の suspend 関数は名ばかりでディスパッチャ退避なし（読みはインメモリ同期アクセスのため）。
+  getXxxFlow は register 後に初期値を読む順序 + conflate + distinctUntilChanged（daybook-coroutines の
+  asFlow と同じイディオム）
+- 検証: JVM 27 件 / linuxX64 27 件緑、モジュール line/branch 100%（missed 0)、core も 100% 維持。
+  CI は test.yml の kover 列挙・バッジ入力に追加、device-test.yml の ios job とパスフィルタに追加
+
 ## マイグレーションスキーマ（裁定 2026-08-15、構想 2026-08-14 を改訂）
 
 iOS / Android で別々に実装されたアプリを KMP に移行するシナリオでは、両 OS のネイティブストアのスキーマ（キー名・型）が食い違っているのが普通で、
@@ -193,7 +219,7 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
   -> :daybook-core (api)
 :daybook-multiplatform-settings   (KMP)     Settings / ObservableSettings / FlowSettings 実装
   -> :daybook-core (api)
-  -> :daybook-coroutines (api)    FlowSettings のため
+  -> com.russhwolf:multiplatform-settings / -coroutines (api)
 :daybook-test                     (KMP)     TestDaybook コンテナ
   -> :daybook-core (api)
 ```
@@ -201,7 +227,7 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
 各モジュールの設計判断:
 
 - daybook-coroutines は core 依存の KMP モジュールに retarget する。1.x の SharedPreferences 向け API（asFlow / changesAsFlow）は androidMain に温存し、モジュール名を保ったまま common に開く
-- FlowSettings は daybook-multiplatform-settings が daybook-coroutines への依存を足して同居させる。multiplatform-settings に倣った coroutines 分割は肥大の兆候が出てから
+- FlowSettings は daybook-multiplatform-settings に同居させる（multiplatform-settings に倣った coroutines 分割は肥大の兆候が出てから）。当初案の :daybook-coroutines 依存は実装時に外した — FlowSettings の型は multiplatform-settings-coroutines のもので、Flow の組み立ては自前のデデュープ済みリスナー + kotlinx-coroutines-core で完結し、:daybook-coroutines から借りるものがなかった（改訂 2026-08-15）
 - coroutines 依存物を core に入れない境界線は 1.x と同じ規律で維持する（core は純 Kotlin・外部依存ゼロ）
 - daybook-test は KMP 化しても commonTest で動く形を維持する（InMemoryJournal は元々ファイル非依存で、素の JVM で動くという 1.x の売りは common で動くに拡張される）
 

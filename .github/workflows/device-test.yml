@@ -45,6 +45,7 @@ jobs:
               - '.github/workflows/device-test.yml'
             ios:
               - 'daybook-core/**'
+              - 'daybook-multiplatform-settings/**'
               - 'build.gradle.kts'
               - 'settings.gradle.kts'
               - 'gradle.properties'
@@ -143,11 +144,16 @@ jobs:
           key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
 
       - name: Compile iosArm64 and run simulator tests
-        run: ./gradlew :daybook-core:compileKotlinIosArm64 :daybook-core:iosSimulatorArm64Test
+        run: >
+          ./gradlew
+          :daybook-core:compileKotlinIosArm64 :daybook-core:iosSimulatorArm64Test
+          :daybook-multiplatform-settings:compileKotlinIosArm64 :daybook-multiplatform-settings:iosSimulatorArm64Test
 
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-test-reports
-          path: daybook-core/build/reports/tests/
+          path: |
+            daybook-core/build/reports/tests/
+            daybook-multiplatform-settings/build/reports/tests/

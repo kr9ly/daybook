@@ -58,6 +58,22 @@ class DaybookTest {
     }
 
     @Test
+    fun keys_returnsSnapshotOfAllKeys() {
+        val daybook = open()
+        assertEquals(emptySet(), daybook.keys)
+        daybook.edit {
+            putString("a", "1")
+            putInt("b", 2)
+        }
+        val snapshot = daybook.keys
+        assertEquals(setOf("a", "b"), snapshot)
+        // スナップショットは以後の書き込みの影響を受けない
+        daybook.edit { remove("a") }
+        assertEquals(setOf("a", "b"), snapshot)
+        assertEquals(setOf("b"), daybook.keys)
+    }
+
+    @Test
     fun getterWithWrongType_throwsClassCastException() {
         val daybook = open()
         daybook.edit { putString("key", "not an int") }

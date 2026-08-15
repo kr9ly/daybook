@@ -48,6 +48,9 @@ internal class KvStoreDaybook(
 
     override fun contains(key: String): Boolean = store.contains(key)
 
+    override val keys: Set<String>
+        get() = store.getAll().keys
+
     override fun edit(block: DaybookEditor.() -> Unit) {
         val editor = EditorImpl()
         editor.block()
