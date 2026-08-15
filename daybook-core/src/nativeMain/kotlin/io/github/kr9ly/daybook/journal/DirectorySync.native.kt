@@ -8,16 +8,15 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import platform.posix.O_RDONLY
 import platform.posix.close
 import platform.posix.errno
-import platform.posix.fsync
 import platform.posix.open
 
-/** ディレクトリ fd への fsync(2)。JVM actual（java.nio.file）と同じシステムコールを発行する。 */
+/** ディレクトリ fd への同期。JVM actual（java.nio.file）と同じ保証水準を [fullFsync] で発行する。 */
 internal class PosixDirectorySync : DirectorySync {
     override fun sync(directory: FilePath) {
         val fd = open(directory.path, O_RDONLY)
         if (fd < 0) throw IoException("cannot open directory: ${directory.path} (errno=$errno)")
         try {
-            if (fsync(fd) != 0) throw IoException("directory fsync failed: ${directory.path} (errno=$errno)")
+            if (fullFsync(fd) != 0) throw IoException("directory fsync failed: ${directory.path} (errno=$errno)")
         } finally {
             close(fd)
         }

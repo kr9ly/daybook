@@ -14,7 +14,6 @@ import platform.posix.O_CREAT
 import platform.posix.O_WRONLY
 import platform.posix.close
 import platform.posix.errno
-import platform.posix.fsync
 import platform.posix.ftruncate
 import platform.posix.open
 import platform.posix.write
@@ -38,7 +37,7 @@ public actual class FileSink actual constructor(path: FilePath) : JournalSink {
     }
 
     actual override fun force() {
-        if (fsync(fd) != 0) throw IoException("fsync failed (errno=$errno)")
+        if (fullFsync(fd) != 0) throw IoException("fsync failed (errno=$errno)")
     }
 
     actual override fun truncate(size: Long) {

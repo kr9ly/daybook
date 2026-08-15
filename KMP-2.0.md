@@ -319,6 +319,25 @@ expect/actual と素のインターフェースの使い分け:
 - あわせて全テストタスクに件数サマリの 1 行ログを追加（daybook-core/build.gradle.kts の AbstractTestTask 設定。
   K/N テストタスクは既定で件数を出さず「0 件で緑」を CI で見分けられないため）
 
+実施記録（2026-08-15: darwin fsync は F_FULLFSYNC に置き換え — JVM と保証水準を揃える裁定）:
+
+- 裁定: apple ターゲットの fd 同期は fsync(2) ではなく fcntl(F_FULLFSYNC) を発行する。
+  darwin の fsync(2) はドライブ内キャッシュへの到達までしか保証せず（fsync(2) man page 明記）、
+  電源断耐性にはドライブキャッシュのフラッシュを含む F_FULLFSYNC が必要。
+  OpenJDK の macOS 実装（FileDispatcherImpl.force0）も FileChannel.force で
+  fcntl(F_FULLFSYNC) を発行し失敗時に fsync へ切り下げるため、
+  揃えないと同じ SYNC モードでも JVM デスクトップ（macOS）と K/N apple で耐久性契約が割れる
+- 実装: nativeMain に internal expect fun fullFsync(fd: Int): Int を新設し、
+  FileSink.force（追記ごとの fsync）と PosixDirectorySync（ディレクトリエントリの永続化）の両方が経由する。
+  linux actual は fsync(2) のまま（Linux の fsync はデバイス書き出しまで含む）、
+  apple actual は fcntl(F_FULLFSYNC) + 失敗時 fsync 切り下げ（OpenJDK と同じフォールバック。
+  ネットワーク FS 等 F_FULLFSYNC 非対応ボリュームでの互換確保）
+- コスト認識: F_FULLFSYNC は fsync より大幅に遅いが、SYNC モードは元々
+  「遅いが電源断まで耐える」を看板にした opt-in であり、darwin だけ看板を割る方が問題。
+  ASYNC モードは fsync の発行順序による安全性のみの契約で、経路はそのまま
+- 検証: appleMain メタデータコンパイル（Linux ホスト）で F_FULLFSYNC / fcntl のシンボル解決を確認、
+  linuxX64Test 256 件緑。apple 側の実行検証は既存の SYNC 経路テストが iosSimulatorArm64Test で回る
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
