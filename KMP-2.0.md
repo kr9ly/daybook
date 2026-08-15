@@ -196,6 +196,16 @@ expect/actual と素のインターフェースの使い分け:
 「動作の保証はしないが実装はある」状態を目指す（POSIX actual + kqueue/dispatch source watcher + 並行プリミティブ actual）。
 実機検証・App Group スパイク・正式サポートの宣言は後続とし、リリース時の対応表明では JVM までをサポート済みとする。
 
+仮実装の検証環境（裁定 2026-08-15: Mac 実機は買わず SaaS で解決する）:
+
+- linuxX64 ターゲットを検証用に追加する。POSIX actual の大半（ファイル IO・flock・並行プリミティブ）は
+  darwin と共通コードか僅差で、手元の WSL の linuxX64Test で開発ループを回せる。
+  watcher の Linux actual（inotify）が 1 枚余分に必要になるのは追加コストとして受け入れる
+- iOS 固有部分（kqueue・Foundation・NSUserDefaults）は GitHub Actions の macOS ランナーで検証する。
+  公開リポジトリは macOS ランナーも無料・分数無制限で、macos-latest は Apple Silicon のため
+  iosSimulatorArm64Test がシミュレータ上でそのまま走る。シミュレータは macOS カーネル上で動くので、
+  POSIX・kqueue・App Group コンテナの検証としては実機なしでも実がある
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
