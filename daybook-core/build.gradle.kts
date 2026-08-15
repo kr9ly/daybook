@@ -18,9 +18,15 @@ kotlin {
     }
 
     // linuxX64 はリリース対象ではなく検証用ターゲット（KMP-2.0.md）。
-    // POSIX actual（nativeMain）を WSL の手元ループで回すために置く。
-    // iOS ターゲットは kqueue/dispatch source watcher の実装とあわせて追加する
+    // POSIX actual（nativeMain）を WSL の手元ループで回すために置く
     linuxX64()
+
+    // iOS は 2.0 リリースの保証対象（シングルプロセス利用まで。裁定 2026-08-15）。
+    // Apple 向けコンパイル・テストは手元（WSL）では実行できず、GHA macOS ランナーの
+    // iosSimulatorArm64Test で検証する。Linux ホストでは KGP がターゲットを無効化するだけで
+    // ビルドは緑のまま
+    iosArm64()
+    iosSimulatorArm64()
 
     compilerOptions {
         // 消費側の Kotlin 2.0 コンパイラが読めるメタデータを出す

@@ -260,6 +260,25 @@ expect/actual と素のインターフェースの使い分け:
   worktree ローカルの .gradle-home/gradle.properties で daemon JVM を Adoptium JDK 19 に切り替えて回避
   （リポジトリ設定には入れない。詳細は NOTES.local.md 環境メモ）
 
+実施記録（2026-08-15: iOS ターゲット宣言 + GHA iosSimulatorArm64Test job）:
+
+- daybook-core に iosArm64 + iosSimulatorArm64 を宣言。Apple 向けコンパイルは Linux ホストでは
+  KGP がターゲットを無効化するだけでビルドは緑のまま、実検証は GHA macOS ランナーに委ねる
+- appleMain の actual は 2 枚で成立: posixFlock（platform.posix.flock）と
+  platformJournalWatcherFactory（暫定スタブ、multiProcess の Daybook.open を fail-fast にする。
+  kqueue/dispatch source 実装で置き換えるまでの措置。シングルプロセス経路はここを通らないため
+  common テスト・native テストはシミュレータでも走る）
+- iOS ターゲット追加で nativeMain が linux + apple の commonizer 交差型でコンパイルされるようになり、
+  交差できない POSIX シンボルが 3 つ浮上（メタデータコンパイルで検出されるため Linux 手元で潰せた）:
+  pthread_create / pthread_tVar（pthread_t が Linux は整数・Darwin はポインタ）、
+  PTHREAD_MUTEX_RECURSIVE（Linux は UInt・Darwin は Int）、mkdir の mode_t（Linux は UInt・Darwin は UShort）。
+  いずれも posixFlock と同じ「nativeMain に expect、linuxMain / appleMain に actual」のシムで吸収
+  （createDetachedPthread / pthreadMutexRecursiveType / posixMkdir）
+- .github/workflows/test.yml に ios-simulator-test job を新設（macos-latest。
+  :daybook-core:compileKotlinIosArm64 で実機向けコンパイルまで + iosSimulatorArm64Test でシミュレータテスト実行。
+  ~/.konan は libs.versions.toml のハッシュをキーにキャッシュ）。
+  iOS レーンを CI 駆動で回す間は push trigger に v2 ブランチを追加（main マージ時に外す）
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）

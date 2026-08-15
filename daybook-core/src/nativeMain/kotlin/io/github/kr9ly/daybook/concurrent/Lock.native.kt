@@ -7,7 +7,6 @@ import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.ptr
-import platform.posix.PTHREAD_MUTEX_RECURSIVE
 import platform.posix.pthread_mutex_init
 import platform.posix.pthread_mutex_lock
 import platform.posix.pthread_mutex_t
@@ -31,7 +30,7 @@ public actual class Lock {
         memScoped {
             val attr = alloc<pthread_mutexattr_t>()
             pthread_mutexattr_init(attr.ptr)
-            pthread_mutexattr_settype(attr.ptr, PTHREAD_MUTEX_RECURSIVE.toInt())
+            pthread_mutexattr_settype(attr.ptr, pthreadMutexRecursiveType())
             pthread_mutex_init(mutex.ptr, attr.ptr)
             pthread_mutexattr_destroy(attr.ptr)
         }
@@ -45,3 +44,9 @@ public actual class Lock {
         pthread_mutex_unlock(mutex.ptr)
     }
 }
+
+/**
+ * PTHREAD_MUTEX_RECURSIVE の値。定数の cinterop 上の型がプラットフォームで分かれる
+ * （Linux は UInt、Darwin は Int）ため expect で吸収する。
+ */
+internal expect fun pthreadMutexRecursiveType(): Int

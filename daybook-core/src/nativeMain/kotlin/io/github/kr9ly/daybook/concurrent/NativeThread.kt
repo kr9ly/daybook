@@ -2,18 +2,13 @@
 
 package io.github.kr9ly.daybook.concurrent
 
+import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.StableRef
-import kotlinx.cinterop.alloc
 import kotlinx.cinterop.asStableRef
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
 import kotlinx.cinterop.staticCFunction
-import kotlinx.cinterop.value
-import platform.posix.pthread_create
-import platform.posix.pthread_detach
-import platform.posix.pthread_tVar
 
 /**
  * [body] を実行するデタッチ済み pthread を起動する。
@@ -24,24 +19,28 @@ import platform.posix.pthread_tVar
  */
 internal fun startDetachedThread(body: () -> Unit) {
     val ref = StableRef.create(body)
-    memScoped {
-        val thread = alloc<pthread_tVar>()
-        val rc = pthread_create(
-            thread.ptr,
-            null,
-            staticCFunction { arg: COpaquePointer? ->
-                val bodyRef = arg!!.asStableRef<() -> Unit>()
-                val threadBody = bodyRef.get()
-                bodyRef.dispose()
-                threadBody()
-                null
-            },
-            ref.asCPointer(),
-        )
-        if (rc != 0) {
-            ref.dispose()
-            throw IllegalStateException("pthread_create failed: $rc")
-        }
-        pthread_detach(thread.value)
+    val rc = createDetachedPthread(
+        staticCFunction { arg: COpaquePointer? ->
+            val bodyRef = arg!!.asStableRef<() -> Unit>()
+            val threadBody = bodyRef.get()
+            bodyRef.dispose()
+            threadBody()
+            null
+        },
+        ref.asCPointer(),
+    )
+    if (rc != 0) {
+        ref.dispose()
+        throw IllegalStateException("pthread_create failed: $rc")
     }
 }
+
+/**
+ * pthread_create + pthread_detach の呼び出し。pthread_t の cinterop 上の型が
+ * プラットフォームで分かれる（Linux は整数、Darwin はポインタ）ため expect で吸収する。
+ * 返り値は pthread_create のリターンコード（0 = 成功）。
+ */
+internal expect fun createDetachedPthread(
+    routine: CPointer<CFunction<(COpaquePointer?) -> COpaquePointer?>>,
+    arg: COpaquePointer?,
+): Int

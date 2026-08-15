@@ -27,7 +27,6 @@ import platform.posix.closedir
 import platform.posix.errno
 import platform.posix.fstat
 import platform.posix.getcwd
-import platform.posix.mkdir
 import platform.posix.open
 import platform.posix.opendir
 import platform.posix.read
@@ -91,7 +90,7 @@ internal actual fun mkdirs(path: FilePath) {
         current += "/$segment"
         // 既存（EEXIST）や権限エラーは JVM actual（File.mkdirs の戻り値無視）と同様に黙殺する。
         // 作成に失敗していれば後続のファイル操作が ENOENT で失敗して表面化する
-        mkdir(current, DIRECTORY_MODE_RWX.convert())
+        posixMkdir(current, DIRECTORY_MODE_RWX)
     }
 }
 
@@ -136,3 +135,9 @@ private fun currentWorkingDirectory(): String = memScoped {
         ?: throw IoException("getcwd failed (errno=$errno)")
     buffer.toKString()
 }
+
+/**
+ * mkdir(2) の呼び出し。mode_t の cinterop 上のビット幅がプラットフォームで分かれる
+ * （Linux は UInt、Darwin は UShort）ため expect で吸収する。
+ */
+internal expect fun posixMkdir(path: String, mode: Int): Int
