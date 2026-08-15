@@ -289,9 +289,15 @@ expect/actual と素のインターフェースの使い分け:
 - vnode 監視は inotify と違いディレクトリのエントリ増減しか報せず、既存ファイルへの追記（ジャーナル成長）を
   検知できないため、ディレクトリ + 直下ファイル個別監視 + イベントごとの再走査で追随する構造にした。
   走査から登録までの隙間の変化は、走査を起こしたイベントの通知自体がカバーする（受け手が確認する契約）
-- close は closed フラグで通知を即時抑止し、source のキャンセルは専用 serial queue に非同期投函する。
-  dispatch_sync は使わない（KvStore.close が書き込みロック内から呼ぶため、ハンドラが onChange 経由で
+- close は closed フラグで通知を即時抑止し、source のキャンセル（非ブロッキング）もロック内で行う。
+  fd を閉じる cancel handler は queue 上で後から走る。dispatch_sync による同期待ちはしない
+  （KvStore.close が書き込みロック内から呼ぶため、ハンドラが onChange 経由で
   同じロックを待っていると デッドロックする — WatchServiceWatch が join しないのと同じ理由）
+- 初期走査は watch() が返る前に同期実行する。初版は dispatch_async で非同期にしていて、
+  「watch() 直後の既存ファイルへの追記」が登録前に起きると取りこぼす競合をシミュレータ CI の
+  追記検知テスト（watch_notifiesOnAppendToPreexistingFile）が 1 回目の実行で検出した。
+  監視状態（fileSources / closed）は queue 専有ではなく Lock 保護に変更し、
+  init スレッドの初期走査・queue 上の再走査・任意スレッドの close を直列化する
 - appleMain のメタデータコンパイル（compileAppleMainKotlinMetadata）は Linux ホストでも走るため、
   シンボル解決レベルの誤りは手元で検出できる（kqueue 不在もこれで発覚）。実行検証は appleTest
   （DispatchSourceJournalWatcherTest 3 件 — 生成/変更検知・既存ファイル追記検知・close 冪等と停止）を

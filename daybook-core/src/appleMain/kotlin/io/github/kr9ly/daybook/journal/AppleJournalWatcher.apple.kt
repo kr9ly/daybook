@@ -15,7 +15,6 @@ import platform.darwin.DISPATCH_VNODE_EXTEND
 import platform.darwin.DISPATCH_VNODE_RENAME
 import platform.darwin.DISPATCH_VNODE_WRITE
 import platform.darwin._dispatch_source_type_vnode
-import platform.darwin.dispatch_async
 import platform.darwin.dispatch_queue_create
 import platform.darwin.dispatch_resume
 import platform.darwin.dispatch_source_cancel
@@ -63,13 +62,14 @@ internal class DispatchSourceWatch(
     private val onChange: () -> Unit,
 ) : AutoCloseable {
 
-    /** 全ハンドラと再走査を直列化する専用キュー。 */
+    /** イベントハンドラの実行キュー。 */
     private val queue = dispatch_queue_create("io.github.kr9ly.daybook.journal.watch", null)
 
+    /** [closed] と [fileSources] を守る。再走査（init スレッド / queue）と close を直列化する。 */
     private val lock = Lock()
     private var closed = false
 
-    /** 監視中のファイル。queue 上でのみ触る。 */
+    /** 監視中のファイル。[lock] の下でのみ触る。 */
     private val fileSources = mutableMapOf<String, dispatch_source_t>()
 
     private val dirSource: dispatch_source_t
@@ -84,9 +84,10 @@ internal class DispatchSourceWatch(
             throw IoException("dispatch_source_create failed: ${directory.path}")
         }
         dirSource = source
-        // 監視開始時点で存在するファイル（開いたばかりのジャーナル等）も追記検知の対象にする。
-        // 初期走査も queue 上で行い、以後の再走査と直列化する
-        dispatch_async(queue) { rescanFiles() }
+        // 監視開始時点で存在するファイル（開いたばかりのジャーナル等）の監視を、watch() が
+        // 返る前にここで同期的に確立する。非同期に回すと「watch() 直後の追記」が登録前に
+        // 起きたとき取りこぼす（シミュレータ CI の追記検知テストで実際に発生した競合）
+        rescanFiles()
     }
 
     /** [fd] の vnode イベントで [handler] を呼ぶ source を作って開始する。失敗時は null（fd は閉じない）。 */
@@ -102,25 +103,28 @@ internal class DispatchSourceWatch(
 
     /**
      * ディレクトリ直下を走査し、増えたファイルの監視を登録・消えたファイルの監視を外す。
-     * queue 上でのみ呼ぶ。
+     * close 済みなら何もしない（close 後に監視を増やしてリークさせない）。
      */
     private fun rescanFiles() {
-        val names = listDirectory(directory)?.toSet() ?: emptySet()
-        val vanished = fileSources.keys.filter { it !in names }
-        for (name in vanished) {
-            fileSources.remove(name)?.let { dispatch_source_cancel(it) }
-        }
-        for (name in names) {
-            if (name in fileSources) continue
-            // 走査と open の間に消えた等の失敗は黙殺する。次のイベントの再走査で追随する
-            val fd = open(directory.resolve(name).path, O_EVTONLY)
-            if (fd < 0) continue
-            val source = createVnodeSource(fd) { notifyChange() }
-            if (source == null) {
-                close(fd)
-                continue
+        lock.withLock {
+            if (closed) return
+            val names = listDirectory(directory)?.toSet() ?: emptySet()
+            val vanished = fileSources.keys.filter { it !in names }
+            for (name in vanished) {
+                fileSources.remove(name)?.let { dispatch_source_cancel(it) }
             }
-            fileSources[name] = source
+            for (name in names) {
+                if (name in fileSources) continue
+                // 走査と open の間に消えた等の失敗は黙殺する。次のイベントの再走査で追随する
+                val fd = open(directory.resolve(name).path, O_EVTONLY)
+                if (fd < 0) continue
+                val source = createVnodeSource(fd) { notifyChange() }
+                if (source == null) {
+                    close(fd)
+                    continue
+                }
+                fileSources[name] = source
+            }
         }
     }
 
@@ -130,18 +134,17 @@ internal class DispatchSourceWatch(
     }
 
     /**
-     * 監視を止める。以後の通知は即座に抑止し、source のキャンセルは queue 上で非同期に行う。
+     * 監視を止める。以後の通知は closed フラグで抑止する。
      *
      * JVM actual の WatchServiceWatch と同じく、監視側との同期待ち（dispatch_sync）はしない
      * （KvStore.close が書き込みロックの内側から呼ぶため、イベントハンドラが onChange 経由で
      * 同じロックを待っていると dispatch_sync はデッドロックする）。
+     * dispatch_source_cancel は非ブロッキングで、fd を閉じる cancel handler は queue 上で後から走る。
      */
     override fun close() {
         lock.withLock {
             if (closed) return
             closed = true
-        }
-        dispatch_async(queue) {
             dispatch_source_cancel(dirSource)
             for (source in fileSources.values) {
                 dispatch_source_cancel(source)
