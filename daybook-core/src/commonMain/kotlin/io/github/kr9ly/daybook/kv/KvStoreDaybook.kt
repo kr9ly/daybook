@@ -59,10 +59,6 @@ internal class KvStoreDaybook(internal val store: KvStore) : Daybook {
         store.removeListener(listener)
     }
 
-    override fun close() {
-        store.close()
-    }
-
     /** ブロック内の操作を呼び出し順に積むだけのバッファ。ブロック外での再利用は想定しない。 */
     private class EditorImpl : DaybookEditor {
         val operations = mutableListOf<KvOperation.Single>()

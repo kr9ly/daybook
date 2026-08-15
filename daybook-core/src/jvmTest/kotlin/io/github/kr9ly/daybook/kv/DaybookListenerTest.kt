@@ -33,7 +33,8 @@ class DaybookListenerTest {
 
     @Test
     fun listener_receivesBatchInCallOrder() {
-        val daybook = KvStore.openInMemory().asDaybook()
+        val store = KvStore.openInMemory()
+        val daybook = store.asDaybook()
         val events = Events(expectedCount = 3)
         daybook.addChangeListener(events.listener)
         daybook.edit {
@@ -45,12 +46,13 @@ class DaybookListenerTest {
             listOf<Pair<String, Any?>>("a" to "1", "b" to 2.5, "a" to null),
             events.await(),
         )
-        daybook.close()
+        store.close()
     }
 
     @Test
     fun removedListener_stopsReceiving() {
-        val daybook = KvStore.openInMemory().asDaybook()
+        val store = KvStore.openInMemory()
+        val daybook = store.asDaybook()
         val removed = Events(expectedCount = 1)
         val kept = Events(expectedCount = 2)
         daybook.addChangeListener(removed.listener)
@@ -66,6 +68,6 @@ class DaybookListenerTest {
             kept.await(),
         )
         assertEquals(listOf<Pair<String, Any?>>("first" to 1), removed.await())
-        daybook.close()
+        store.close()
     }
 }

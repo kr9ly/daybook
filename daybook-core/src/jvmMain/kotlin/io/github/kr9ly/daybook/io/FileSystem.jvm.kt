@@ -20,3 +20,6 @@ internal actual fun deleteFile(path: FilePath) {
 
 internal actual fun renameFile(from: FilePath, to: FilePath): Boolean =
     File(from.path).renameTo(File(to.path))
+
+internal actual fun absoluteNormalizedPath(path: String): String =
+    File(path).absoluteFile.normalize().path

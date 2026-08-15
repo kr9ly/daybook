@@ -22,3 +22,9 @@ internal expect fun deleteFile(path: FilePath)
 
 /** ファイルを rename する。成功したら true。 */
 internal expect fun renameFile(from: FilePath, to: FilePath): Boolean
+
+/**
+ * パスを絶対・正規化形（`.` / `..` の解決）にする。シンボリックリンクは解決しない。
+ * DaybookRegistry が「同じディレクトリ」の同定に使う。
+ */
+internal expect fun absoluteNormalizedPath(path: String): String

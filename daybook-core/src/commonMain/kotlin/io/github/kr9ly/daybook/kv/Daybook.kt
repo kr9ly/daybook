@@ -29,11 +29,10 @@ public fun interface DaybookChangeListener {
  * - 同値の put や不在キーの remove も操作として書かれ、そのまま通知される（操作ベース）
  * - 書き込みの IO 失敗は黙って破棄せず IOException として伝播する
  *
- * インスタンスの生成は当面 daybook-test の in-memory コンテナ経由。
- * ファイルバックドなストアを開く公開 API はオプション設計（syncMode・multiProcess・
- * マイグレーションスキーマ）と合わせて別途設計する。
+ * インスタンスは [open] で入手する（テストでは daybook-test の in-memory コンテナ）。
+ * ストアはプロセス寿命で、close の概念はない。
  */
-public interface Daybook : AutoCloseable {
+public interface Daybook {
 
     /** [key] の文字列値。不在なら [default]。 */
     public fun getString(key: String, default: String?): String?
@@ -80,6 +79,39 @@ public interface Daybook : AutoCloseable {
 
     /** 変更リスナーを解除する。 */
     public fun removeChangeListener(listener: DaybookChangeListener)
+
+    public companion object {
+
+        /**
+         * [directory] 配下の [name] ストアを開いて返す。
+         *
+         * ジャーナルは `<directory>/<name>.<世代番号>.journal` として保存される。
+         * 初回呼び出しでジャーナルのリプレイ（ファイル IO）が走り、以後の読み出しは
+         * すべてインメモリキャッシュへの同期アクセスになる。
+         *
+         * 同一プロセス内では同じ (directory, name) に常に同一インスタンスを返す。
+         * directory は絶対パスに正規化して同定される（シンボリックリンクは解決しないため、
+         * 同じ実体を指す別経路のパスは別ストア扱いになる）。ストアはプロセス寿命で close は
+         * 不要（SharedPreferences と同じライフサイクル観）。
+         *
+         * [configure] のオプションはインスタンス生成時（プロセス内で最初の open）にだけ
+         * 使われる。同じストアの再取得でオプションが一致しない場合は IllegalArgumentException。
+         *
+         * ジャーナルとして読めないファイルがある場合は
+         * [io.github.kr9ly.daybook.journal.JournalFormatException]、
+         * レコードが KV 操作として読めない場合は [KvEncodingException]。
+         * ディスク IO の失敗は IOException として伝播する。
+         *
+         * @param directory ストアの置き場所のディレクトリパス。存在しなければ作られる。
+         * @param name ストア名。空文字と `/` を含む名前は不可。
+         * @throws IllegalArgumentException [name] が不正な場合、または同じストアが異なるオプションで既に開かれている場合。
+         */
+        public fun open(
+            directory: String,
+            name: String = "daybook",
+            configure: DaybookOpenOptions.() -> Unit = {},
+        ): Daybook = DaybookRegistry.getOrOpen(directory, name, DaybookOpenOptions().apply(configure))
+    }
 }
 
 /**

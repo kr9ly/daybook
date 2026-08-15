@@ -22,3 +22,11 @@ public fun interface JournalWatcherFactory {
      */
     public fun watch(directory: FilePath, onChange: () -> Unit): AutoCloseable
 }
+
+/**
+ * プラットフォーム既定の検知実装。公開 open API（Daybook.open）の multiProcess が内部で結線する。
+ *
+ * JVM actual は WatchService（macOS ではポーリング実装のため検知が秒オーダー）。
+ * Android の 1.x SharedPreferences 顔（:daybook）は従来どおり FileObserver 実装を明示注入する。
+ */
+internal expect fun platformJournalWatcherFactory(): JournalWatcherFactory

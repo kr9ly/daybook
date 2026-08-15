@@ -137,12 +137,4 @@ class DaybookTest {
         daybook.edit {}
         assertFalse(daybook.contains("anything"))
     }
-
-    @Test
-    fun close_isIdempotentlySafe() {
-        val daybook = open()
-        daybook.edit { putInt("key", 1) }
-        daybook.close()
-        daybook.close()
-    }
 }

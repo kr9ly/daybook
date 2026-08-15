@@ -71,8 +71,39 @@ Settings 利用者向けの型安全ラッパーはエコシステム既存資�
 - 顔の名前は Daybook（interface）、型安全プロパティは DaybookProperty。:daybook 残留の PreferenceProperty と名前を分けて誤用を防ぎ、KvStore は公開昇格せず internal ラッパー（KvStoreDaybook）で包む — エンジンの内部進化の自由を残す
 - リスナーは DaybookChangeListener（値つき、newValue: Any? = 対応 7 種のいずれか）。sealed ラッパーは採らず、裁定 2026-08-03 の素の型主義に合わせる。KvChangeListener 公開裁定（1.x 持ち越し）はこの形で消化
 - 書き込みは edit(block) に集約し 1 ブロック = 1 ジャーナルレコード。Android 顔との意図的な違い: 呼び出し順どおり適用（clear の先頭並べ替えなし）・操作ベース通知（同値 put も通知）・IO 失敗は IOException 伝播（黙って破棄しない）
-- ファイルバックドなストアを開く公開 API は本節のスコープ外。オプション設計（syncMode・multiProcess・マイグレーションスキーマ）と watcher の JVM 実装（WatchService）を巻き込むため別途設計する。当面 Daybook の入手手段は daybook-test の in-memory コンテナ
+- ファイルバックドなストアを開く公開 API は本節のスコープ外としていたが、裁定 2026-08-15 で確定（次節）
 - Double のエンジン対応（コーデック TYPE_DOUBLE=7、raw bits 8B）もこの実装で導入。SharedPreferences 顔（:daybook）の Double は現行コードが fail-fast（export 時 IllegalArgumentException）で、これは裁定どおりの既定。緩和オプション（顔ごとの互換ポリシー）は未実装
+
+### 公開 open API（裁定 2026-08-15）
+
+ファイルバックドなストアを開く common の公開 API。
+
+入口の形: `Daybook.open(directory, name) { ... }`（companion 関数 + ビルダー DSL）。
+
+- ビルダー（DaybookOpenOptions）採用の理由: オプションは今後増えることが確定しており（migrations・顔ごとの互換ポリシー等）、デフォルト引数の羅列やオプションクラスのコンストラクタは explicitApi の公開ライブラリでは追加のたびにバイナリ互換が壊れる。ビルダーなら var 追加だけで互換が保たれる
+- directory は String で受ける（common の最小公倍数。FilePath は internal 温存。JVM の Path オーバーロードは需要が見えてから）
+- 耐久性は公開 enum Durability（SYNC / ASYNC、既定 ASYNC）を `.kv` に新設し、internal の SyncMode へ open 内で写像する。journal パッケージは internal 専有を維持する
+
+インスタンス管理はプロセス内キャッシュ（裁定 2026-08-15: 1.x DaybookPreferencesCache と同じ意味論）:
+
+- 同じ (directory, name) は常に同一インスタンス。KV 設定ストアに close する自然なタイミングはなく（SharedPreferences と同じくプロセス寿命）、明示ライフサイクルは所有権の押し付けにしかならない
+- これに伴い Daybook interface から AutoCloseable を外す（close は internal の KvStore に残り、テストとレジストリのリセット経路だけが使う）。2.0 未リリースのため破壊コストなし
+- キャッシュキーの directory は expect/actual で絶対パス正規化する（相対パス違いで別インスタンスになる事故を防ぐ。シンボリックリンクまでは解決しない旨を KDoc に明記）
+- 再取得時のオプション不一致（durability / multiProcess）は 1.x と同じ fail-fast（IllegalArgumentException）。migrations は 1.x の import フラグと同じ「インスタンス生成時のみ有効・キャッシュヒット時は無視」の契約
+- JVM テスト向けに internal な resetForTesting を持つ
+
+multiProcess の watcher 結線:
+
+- `multiProcess = true` のとき expect/actual の platformJournalWatcherFactory() を core が内部で結線する（公開 API に watcher 型は出さない）
+- JVM actual は WatchService 実装を新設。macOS の WatchService はポーリング実装で検知が秒オーダーになる旨を KDoc に注記
+- Android は :daybook が core を JVM 成果物として消費するため、共通 open を Android で使うと WatchService（inotify バック）になる。1.x の FileObserver 経路は SharedPreferences 顔に温存。FileObserver を注入する Context 拡張を :daybook に足すかは別論点として据え置き
+
+マイグレーションの結線スロット（型は MigrationSource タスクで切る）:
+
+- ビルダーに `migrations` を後から足す（ビルダー方式なので予約不要）
+- 実行位置の契約: open のロック下・リプレイ完了後・open が返る前に冪等実行。マーカーは 1.x 流サイドカー方式
+
+公開しないもの: compactionThreshold・sinkFactory・compactionHook・lockFactory はテスト/チューニング用フックとして internal に留める（ビルダーなら後から公開する余地が常にある）。
 
 ### 論点: 値型の不一致
 
