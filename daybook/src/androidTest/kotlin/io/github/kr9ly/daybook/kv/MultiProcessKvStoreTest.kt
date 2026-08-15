@@ -2,15 +2,15 @@ package io.github.kr9ly.daybook.kv
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 2 プロセス相互読み書きの実機検証。
@@ -105,5 +105,4 @@ class MultiProcessKvStoreTest {
         worker.put("after-compaction", "ok")
         assertEquals("ok", store.readFresh("after-compaction"))
     }
-
 }

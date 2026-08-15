@@ -1,9 +1,10 @@
 package io.github.kr9ly.daybook.adversarial
 
 import android.content.SharedPreferences
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
-import io.github.kr9ly.daybook.DaybookPreferencesCache
 import io.github.kr9ly.daybook.DaybookOptions
+import io.github.kr9ly.daybook.DaybookPreferencesCache
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.importSharedPreferencesIntoDaybook
 import org.junit.After
@@ -18,7 +19,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
-import android.os.Looper
 import java.lang.ref.WeakReference
 import kotlin.random.Random
 
@@ -413,6 +413,7 @@ class AdversarialEditorContractTest {
         prefs.edit().putString("a", "1").commit()
 
         val all = prefs.all
+
         @Suppress("UNCHECKED_CAST")
         val mutableAll = all as? MutableMap<String, Any?>
         try {

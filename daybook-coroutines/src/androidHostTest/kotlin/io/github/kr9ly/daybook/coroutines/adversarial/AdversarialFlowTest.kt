@@ -3,10 +3,10 @@ package io.github.kr9ly.daybook.coroutines.adversarial
 import android.content.Context
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
+import io.github.kr9ly.daybook.coroutines.asFlow
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.int
 import io.github.kr9ly.daybook.string
-import io.github.kr9ly.daybook.coroutines.asFlow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch

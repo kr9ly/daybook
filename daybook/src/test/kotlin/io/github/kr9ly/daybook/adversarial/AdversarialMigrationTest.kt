@@ -2,10 +2,10 @@ package io.github.kr9ly.daybook.adversarial
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.kr9ly.daybook.DaybookOptions
 import io.github.kr9ly.daybook.DaybookPreferencesCache
 import io.github.kr9ly.daybook.exportAllDaybookToSharedPreferences
 import io.github.kr9ly.daybook.exportDaybookToSharedPreferences
-import io.github.kr9ly.daybook.DaybookOptions
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.importAllSharedPreferencesIntoDaybook
 import io.github.kr9ly.daybook.importSharedPreferencesIntoDaybook
@@ -374,7 +374,7 @@ class AdversarialMigrationTest {
         val framework = context.getSharedPreferences(name, Context.MODE_PRIVATE)
         framework.edit()
             .putInt("y", 999) // 上書きされるべき
-            .putInt("z", 3)   // stale、削除されるべき
+            .putInt("z", 3) // stale、削除されるべき
             .commit()
 
         context.exportDaybookToSharedPreferences(name)

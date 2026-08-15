@@ -356,10 +356,12 @@ public class KvStore private constructor(
                 cache[op.key] = op.value
                 dispatch(op.key, op.value)
             }
+
             is KvOperation.Remove -> {
                 cache.remove(op.key)
                 dispatch(op.key, null)
             }
+
             KvOperation.Clear -> {
                 val keys = cache.snapshotKeys()
                 cache.clear()
@@ -468,8 +470,14 @@ public class KvStore private constructor(
             val journalDirectory = JournalDirectory(directory, name)
             if (!multiProcess) {
                 return openLocked(
-                    directory, journalDirectory, syncMode, compactionThreshold,
-                    sinkFactory, directorySync, compactionHook, interProcessLock = null,
+                    directory,
+                    journalDirectory,
+                    syncMode,
+                    compactionThreshold,
+                    sinkFactory,
+                    directorySync,
+                    compactionHook,
+                    interProcessLock = null,
                 )
             }
             requireNotNull(watcherFactory) { "multiProcess requires a watcherFactory" }
@@ -478,8 +486,14 @@ public class KvStore private constructor(
             val store = try {
                 lock.withLock {
                     openLocked(
-                        directory, journalDirectory, syncMode, compactionThreshold,
-                        sinkFactory, directorySync, compactionHook, interProcessLock = lock,
+                        directory,
+                        journalDirectory,
+                        syncMode,
+                        compactionThreshold,
+                        sinkFactory,
+                        directorySync,
+                        compactionHook,
+                        interProcessLock = lock,
                     )
                 }
             } catch (e: Throwable) {

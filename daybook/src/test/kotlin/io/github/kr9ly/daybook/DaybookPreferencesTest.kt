@@ -2,7 +2,6 @@ package io.github.kr9ly.daybook
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
@@ -12,6 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 
 /** Context 拡張（公開 API）とプロセス内キャッシュのテスト。 */
 @RunWith(RobolectricTestRunner::class)

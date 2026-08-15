@@ -111,6 +111,7 @@ internal object DaybookMigration {
         val marker = importMarker(context, name)
         if (marker.exists()) return false
         val source = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+
         @Suppress("UNCHECKED_CAST")
         val values = source.all as Map<String, Any>
         store.writeBatch(values.map { (key, value) -> KvOperation.Put(key, value) })
@@ -125,14 +126,20 @@ internal object DaybookMigration {
     fun putInto(editor: SharedPreferences.Editor, key: String, value: Any) {
         when (value) {
             is String -> editor.putString(key, value)
+
             is Int -> editor.putInt(key, value)
+
             is Long -> editor.putLong(key, value)
+
             is Float -> editor.putFloat(key, value)
+
             is Boolean -> editor.putBoolean(key, value)
+
             is Set<*> -> {
                 @Suppress("UNCHECKED_CAST")
                 editor.putStringSet(key, value as Set<String>)
             }
+
             else -> throw IllegalArgumentException(
                 "unsupported value type: ${value::class.java.name} " +
                     "(String/Int/Long/Float/Boolean/Set<String> only)",

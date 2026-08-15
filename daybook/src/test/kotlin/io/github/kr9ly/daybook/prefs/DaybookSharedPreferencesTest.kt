@@ -6,8 +6,6 @@ import io.github.kr9ly.daybook.io.FilePath
 import io.github.kr9ly.daybook.journal.FileSink
 import io.github.kr9ly.daybook.journal.JournalSink
 import io.github.kr9ly.daybook.kv.KvStore
-import java.io.IOException
-import java.util.concurrent.Executors
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +18,8 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import java.io.IOException
+import java.util.concurrent.Executors
 
 /**
  * [DaybookSharedPreferences] の SharedPreferences 契約テスト。

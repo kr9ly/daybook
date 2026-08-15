@@ -5,13 +5,13 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kr9ly.daybook.ProcessKillTest
-import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * プロセスキル耐性の実機検証（flaky 前提の隔離スイート。実行方法は [ProcessKillTest] を参照）。

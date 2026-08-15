@@ -1,7 +1,5 @@
 package io.github.kr9ly.daybook.journal
 
-import java.io.File
-import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -9,6 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.io.IOException
 
 class JournalDirectoryTest {
 
@@ -38,11 +38,11 @@ class JournalDirectoryTest {
     @Test
     fun unrelatedFiles_areIgnoredAndLeftUntouched() {
         val unrelated = listOf(
-            "other.1.journal",     // 名前不一致
-            "store.x.journal",     // 世代番号が数値でない
-            "store.0.journal",     // 世代番号は 1 始まり
-            "store.-1.journal",    // 負の世代番号
-            "store.journal",       // 世代番号なし（プレフィックス+サフィックスより短い）
+            "other.1.journal", // 名前不一致
+            "store.x.journal", // 世代番号が数値でない
+            "store.0.journal", // 世代番号は 1 始まり
+            "store.-1.journal", // 負の世代番号
+            "store.journal", // 世代番号なし（プレフィックス+サフィックスより短い）
             "store.1.journal.bak", // サフィックス不一致
         ).map { createFile(it) }
         assertEquals(JournalDirectory.FIRST_GENERATION, directory().resolveCurrentGeneration())

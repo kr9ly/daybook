@@ -1,13 +1,13 @@
 package io.github.kr9ly.daybook.journal
 
-import java.io.File
-import java.nio.channels.ClosedChannelException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.nio.channels.ClosedChannelException
 
 /**
  * FileInterProcessLock の JVM で検証できる範囲のテスト。

@@ -6,11 +6,6 @@ import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalFormatException
 import io.github.kr9ly.daybook.journal.JournalWatcherFactory
 import io.github.kr9ly.daybook.journal.open
-import java.io.Closeable
-import java.io.File
-import java.util.Collections
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.locks.ReentrantLock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -18,6 +13,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.Closeable
+import java.io.File
+import java.util.Collections
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * マルチプロセスモードの結合テスト。

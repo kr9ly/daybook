@@ -1,10 +1,10 @@
 package io.github.kr9ly.daybook
 
 import io.github.kr9ly.daybook.kv.KvStore
-import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
+import java.io.IOException
 
 /**
  * [DaybookTestBridge] のテスト。

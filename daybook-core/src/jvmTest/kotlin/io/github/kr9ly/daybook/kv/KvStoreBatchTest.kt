@@ -2,17 +2,17 @@ package io.github.kr9ly.daybook.kv
 
 import io.github.kr9ly.daybook.journal.FileSink
 import io.github.kr9ly.daybook.journal.JournalFile
-import io.github.kr9ly.daybook.journal.open
 import io.github.kr9ly.daybook.journal.JournalSink
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import io.github.kr9ly.daybook.journal.open
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * [KvStore.writeBatch] の結合テスト。
@@ -233,7 +233,9 @@ class KvStoreBatchTest {
                 val expected: Map<String, Any> = when {
                     // 型引数の明示は必須: 推論に任せると 2L に引きずられてリテラル 1 が Long 化する
                     limit >= total -> mapOf<String, Any>("a" to 1, "b" to 2L)
+
                     limit >= afterBase -> mapOf("base" to "x")
+
                     else -> emptyMap()
                 }
                 assertEquals("persistLimit=$limit", expected, store.getAll())

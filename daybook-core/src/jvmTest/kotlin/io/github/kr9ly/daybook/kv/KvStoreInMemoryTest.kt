@@ -1,12 +1,12 @@
 package io.github.kr9ly.daybook.kv
 
-import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 /**
  * [KvStore.openInMemory] のテスト。

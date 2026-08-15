@@ -1,8 +1,5 @@
 package io.github.kr9ly.daybook.journal
 
-import java.io.File
-import java.nio.ByteBuffer
-import java.util.zip.CRC32
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.nio.ByteBuffer
+import java.util.zip.CRC32
 
 class JournalFileTest {
 
@@ -39,10 +39,10 @@ class JournalFileTest {
     @Test
     fun appendAndReplay_roundTrip() {
         val records = listOf(
-            byteArrayOf(),                                  // 空 payload
+            byteArrayOf(), // 空 payload
             byteArrayOf(1),
-            byteArrayOf(0, -1, 127, -128, 42),              // バイナリ値
-            ByteArray(64 * 1024) { (it % 251).toByte() },   // 大きめ
+            byteArrayOf(0, -1, 127, -128, 42), // バイナリ値
+            ByteArray(64 * 1024) { (it % 251).toByte() }, // 大きめ
         )
         JournalFile.open(journalFile()).use { journal ->
             records.forEach { journal.append(it) }
@@ -83,7 +83,7 @@ class JournalFileTest {
         // 最後のレコードの payload を 1 バイト破壊（CRC 不一致にする）
         val bytes = file.readBytes()
         val sizeBefore = bytes.size
-        bytes[bytes.size - 6]++  // 最終レコード payload 末尾
+        bytes[bytes.size - 6]++ // 最終レコード payload 末尾
         file.writeBytes(bytes)
 
         JournalFile.open(file).use { journal ->
@@ -270,7 +270,7 @@ class JournalFileTest {
         val file = journalFile()
         JournalFile.open(file).use {}
         val bytes = file.readBytes()
-        bytes[7] = 99  // version フィールド
+        bytes[7] = 99 // version フィールド
         file.writeBytes(bytes)
         assertThrows(JournalFormatException::class.java) { JournalFile.open(file) }
     }

@@ -3,8 +3,8 @@ package io.github.kr9ly.daybook.adversarial
 import android.content.SharedPreferences
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
-import io.github.kr9ly.daybook.DaybookPreferencesCache
 import io.github.kr9ly.daybook.DaybookOptions
+import io.github.kr9ly.daybook.DaybookPreferencesCache
 import io.github.kr9ly.daybook.getDaybookSharedPreferences
 import io.github.kr9ly.daybook.int
 import org.junit.After

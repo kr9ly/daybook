@@ -3,11 +3,8 @@ package io.github.kr9ly.daybook.kv
 import io.github.kr9ly.daybook.io.FilePath
 import io.github.kr9ly.daybook.io.toFilePath
 import io.github.kr9ly.daybook.journal.JournalFile
-import io.github.kr9ly.daybook.journal.open
 import io.github.kr9ly.daybook.journal.SyncMode
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import io.github.kr9ly.daybook.journal.open
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -15,6 +12,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class KvStoreCompactionTest {
 

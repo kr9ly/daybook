@@ -1,0 +1,21 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{kt,kts}]
+indent_size = 4
+max_line_length = 120
+ktlint_code_style = intellij_idea
+# シグネチャ・式本体の折り返し方は書き手の裁量に残す（既存コードの再整形を避ける）
+ktlint_standard_function-signature = disabled
+ktlint_standard_function-expression-body = disabled
+ktlint_standard_class-signature = disabled
+# ファイル名は概念ベース（例: JournalWatcher.kt に interface + factory）を許容する
+ktlint_standard_filename = disabled
+# ファイルレベル KDoc（モジュール説明）を使うため kdoc 配置ルールは無効
+ktlint_standard_kdoc = disabled
+# バッククォートのテスト関数名は行長制限の対象外にする
+ktlint_ignore_back_ticked_identifier = true

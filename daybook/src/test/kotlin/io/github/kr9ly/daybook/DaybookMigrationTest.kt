@@ -2,7 +2,6 @@ package io.github.kr9ly.daybook
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 
 /** framework SharedPreferences との相互マイグレーション（import / export / 透過取り込み）のテスト。 */
 @RunWith(RobolectricTestRunner::class)
@@ -119,7 +119,10 @@ class DaybookMigrationTest {
         // プロセス再起動を模す: キャッシュ破棄 → フラグつき再オープンでも再取り込みされない
         prefs.edit().putString("key", "edited").commit()
         DaybookPreferencesCache.resetForTesting()
-        val reopened = context.getDaybookSharedPreferences("settings", DaybookOptions(importFromSharedPreferences = true))
+        val reopened = context.getDaybookSharedPreferences(
+            "settings",
+            DaybookOptions(importFromSharedPreferences = true),
+        )
         assertEquals("edited", reopened.getString("key", null))
     }
 

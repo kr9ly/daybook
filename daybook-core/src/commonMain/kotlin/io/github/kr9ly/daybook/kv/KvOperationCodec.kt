@@ -27,7 +27,13 @@ internal class KvEncodingException(message: String) : IoException(message)
  * （各要素は自己区切りなので長さプレフィックスは持たない）。
  * BATCH や SNAPSHOT_BOUNDARY を要素に含むバイト列は不正。
  *
- * 文字列は `[length 4B][UTF-8 bytes]`、`Set<String>` は `[count 4B][文字列...]`。
+ * 文字列と `Set<String>` のエンコードは以下のとおり。
+ *
+ * ```
+ * 文字列:      [length 4B][UTF-8 bytes]
+ * Set<String>: [count 4B][文字列...]
+ * ```
+ *
  * `Int`/`Long` はそのままのビット幅、`Float` は raw bits 4B、`Double` は raw bits 8B、
  * `Boolean` は 1B(0/1)。整数はすべてビッグエンディアン（ジャーナル層と同じ）。
  */
@@ -57,11 +63,13 @@ internal object KvOperationCodec {
         val out = ByteArrayBuilder()
         when (op) {
             is KvOperation.Single -> writeSingle(out, op)
+
             is KvOperation.Batch -> {
                 out.write(OP_BATCH)
                 writeInt(out, op.operations.size)
                 op.operations.forEach { writeSingle(out, it) }
             }
+
             KvOperation.SnapshotBoundary -> out.write(OP_SNAPSHOT_BOUNDARY)
         }
         return out.toByteArray()
@@ -76,7 +84,9 @@ internal object KvOperationCodec {
                 if (count < 0) throw KvEncodingException("negative batch count: $count")
                 KvOperation.Batch(List(count) { readSingle(reader) })
             }
+
             OP_SNAPSHOT_BOUNDARY -> KvOperation.SnapshotBoundary
+
             else -> readSingleBody(reader, tag)
         }
         reader.requireConsumed()
@@ -90,10 +100,12 @@ internal object KvOperationCodec {
                 writeString(out, op.key)
                 writeValue(out, op.value)
             }
+
             is KvOperation.Remove -> {
                 out.write(OP_REMOVE)
                 writeString(out, op.key)
             }
+
             KvOperation.Clear -> out.write(OP_CLEAR)
         }
     }
@@ -107,8 +119,11 @@ internal object KvOperationCodec {
             val key = reader.readString()
             KvOperation.Put(key, readValue(reader))
         }
+
         OP_REMOVE -> KvOperation.Remove(reader.readString())
+
         OP_CLEAR -> KvOperation.Clear
+
         else -> throw KvEncodingException("unknown op tag: $tag")
     }
 
@@ -118,29 +133,35 @@ internal object KvOperationCodec {
                 out.write(TYPE_STRING)
                 writeString(out, value)
             }
+
             is Int -> {
                 out.write(TYPE_INT)
                 writeInt(out, value)
             }
+
             is Long -> {
                 out.write(TYPE_LONG)
                 writeInt(out, (value ushr 32).toInt())
                 writeInt(out, value.toInt())
             }
+
             is Float -> {
                 out.write(TYPE_FLOAT)
                 writeInt(out, value.toRawBits())
             }
+
             is Double -> {
                 out.write(TYPE_DOUBLE)
                 val bits = value.toRawBits()
                 writeInt(out, (bits ushr 32).toInt())
                 writeInt(out, bits.toInt())
             }
+
             is Boolean -> {
                 out.write(TYPE_BOOLEAN)
                 out.write(if (value) 1 else 0)
             }
+
             is Set<*> -> {
                 out.write(TYPE_STRING_SET)
                 writeInt(out, value.size)
@@ -151,6 +172,7 @@ internal object KvOperationCodec {
                     writeString(out, element)
                 }
             }
+
             else -> throw IllegalArgumentException(
                 "unsupported value type: ${value::class.qualifiedName} " +
                     "(String/Int/Long/Float/Double/Boolean/Set<String> only)",
@@ -160,17 +182,23 @@ internal object KvOperationCodec {
 
     private fun readValue(reader: Reader): Any = when (val tag = reader.readByte()) {
         TYPE_STRING -> reader.readString()
+
         TYPE_INT -> reader.readInt()
+
         TYPE_LONG -> (reader.readInt().toLong() shl 32) or (reader.readInt().toLong() and 0xFFFFFFFFL)
+
         TYPE_FLOAT -> Float.fromBits(reader.readInt())
+
         TYPE_DOUBLE -> Double.fromBits(
             (reader.readInt().toLong() shl 32) or (reader.readInt().toLong() and 0xFFFFFFFFL),
         )
+
         TYPE_BOOLEAN -> when (val b = reader.readByte()) {
             0 -> false
             1 -> true
             else -> throw KvEncodingException("invalid boolean value: $b")
         }
+
         TYPE_STRING_SET -> {
             val count = reader.readInt()
             if (count < 0) throw KvEncodingException("negative set count: $count")
@@ -178,6 +206,7 @@ internal object KvOperationCodec {
                 repeat(count) { add(reader.readString()) }
             }
         }
+
         else -> throw KvEncodingException("unknown value type tag: $tag")
     }
 
