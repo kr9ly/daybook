@@ -45,6 +45,7 @@ object Settings : DaybookSchema(name = "settings") {
     val darkMode = boolean("dark_mode")
     val fontScale = double("font_scale")
     val userName = string("user_name")
+    val theme = string("theme")
     val tags = stringSet("tags")
 }
 ```
@@ -124,13 +125,26 @@ class SettingsRepository(daybook: Daybook) {
 - property 生成時にストア束縛を検査する: キーの所属スキーマと Daybook のスキーマが別オブジェクトなら即例外
 - 書き込みは 1 キーの edit と等価（アトミック）。複数キーをまとめてアトミックに書きたいときは edit に落ちる
 
-値のアダプタ: map で境界の双方向変換を合成し、catch で読み取り経路の回復をチェーンする。
+### 値のアダプタ（map / catch）
+
+格納型（7 種）とアプリの型の境界は、map で双方向変換を合成し、catch で読み取りの回復をチェーンする。
 
 ```kotlin
 var theme by daybook.property(Settings.theme, default = Theme.SYSTEM.name)
     .map(decode = Theme::valueOf, encode = Theme::name)
-    .catch { Theme.SYSTEM }        // decode 失敗時のフォールバック（既定は fail-fast）
+    .catch { Theme.SYSTEM }        // 読み取り失敗時のフォールバック（既定は fail-fast）
 ```
+
+map の契約:
+
+- 読むたびに decode、書くたびに encode が走る。返り値は同じキーの上の完全な DaybookProperty なので、デリゲートも asFlow()（daybook-coroutines）も無変更で効く（asFlow の重複排除は変換後の equals で判定される）
+- デフォルトは格納側の世界で宣言されたまま。map は純粋な値変換であり「不在」を見ることはない（キー不在は default が decode を通って返る）
+- 変換の失敗はそのまま伝播する（既定は fail-fast）
+
+catch の契約:
+
+- Flow.catch と同型: 対象は読み取り経路だけで、書き込み（encode 含む）の失敗は呼び出し側のバグとしてそのまま伝播する
+- 「読み取りの失敗」は読み取り中のあらゆる例外を指し、上流の map の decode 失敗に限らず、既存キーを型違いで読んだときの ClassCastException も回復される。型違いは大きな音で落としたい場合は catch を付けず、decode の失敗だけを map の内側で処理する
 
 enum 専用のシュガーは意図的に提供していない。
 Enum.name を永続表現に使う結合は「リネームで永続データが黙って壊れる」罠なので、使うなら map で明示的に書く（結合がコードに見える）。

@@ -65,7 +65,7 @@ public class DaybookProperty<T> internal constructor(
      * 「不在」を見ることはない。
      *
      * ```kotlin
-     * var theme by daybook.string("theme", default = Theme.SYSTEM.name)
+     * var theme by daybook.property(Settings.theme, default = Theme.SYSTEM.name)
      *     .map(decode = Theme::valueOf, encode = Theme::name)
      * ```
      *
@@ -92,7 +92,7 @@ public class DaybookProperty<T> internal constructor(
      * decode の失敗は [map] の内側で処理すること。
      *
      * ```kotlin
-     * var theme by daybook.string("theme", default = Theme.SYSTEM.name)
+     * var theme by daybook.property(Settings.theme, default = Theme.SYSTEM.name)
      *     .map(decode = Theme::valueOf, encode = Theme::name)
      *     .catch { Theme.SYSTEM }
      * ```
