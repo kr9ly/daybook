@@ -96,7 +96,20 @@ multiProcess の watcher 結線:
 
 - `multiProcess = true` のとき expect/actual の platformJournalWatcherFactory() を core が内部で結線する（公開 API に watcher 型は出さない）
 - JVM actual は WatchService 実装を新設。macOS の WatchService はポーリング実装で検知が秒オーダーになる旨を KDoc に注記
-- Android は :daybook が core を JVM 成果物として消費するため、共通 open を Android で使うと WatchService（inotify バック）になる。1.x の FileObserver 経路は SharedPreferences 顔に温存。FileObserver を注入する Context 拡張を :daybook に足すかは別論点として据え置き
+- Android は :daybook が core を JVM 成果物として消費するため、共通 open を Android で使うと WatchService（inotify バック）になる。1.x の FileObserver 経路は SharedPreferences 顔に温存。FileObserver を注入する Context 拡張を :daybook に足すかは別論点として据え置き（→ 直後の「Android 両顔統合」で実装済み）
+
+### Android 両顔統合 + Context.openDaybook（裁定 2026-08-15、実装済み）
+
+SharedPreferences 顔（:daybook の DaybookPreferencesCache）と共通 open（core の DaybookRegistry）が
+同じ filesDir/daybook + name に別々の KvStore を開けてしまう問題（多重オープンによる破損リスク / 変更の相互不可視）の解消。
+
+- 統合の形: ストアの入手経路を core の DaybookRegistry に一本化する。DaybookPreferencesCache は name → SharedPreferences 顔のマップだけを持ち、裏の KvStore はレジストリの getOrOpenStore から取得する。同じ (directory, name) には両顔が同一 KvStore を共有する
+- レジストリの注入点: DaybookRegistry を public + @DaybookInternalApi に昇格し、生成時注入の入口を開けた — openDaybook（Daybook の顔 + watcher/directorySync 注入）、getOrOpenStore（KvStore + onCreate フック）、withStore（マイグレーション用の直列化窓口）。注入はストアのインスタンス生成時にだけ効く（先に生成した側の結線が勝つ）
+- 入口: `Context.openDaybook(name) { ... }` を :daybook に新設。FileObserver（inotify）watcher と android.system.Os の directory fsync を結線する。「Android では Context 拡張が正規の入口、素の Daybook.open は WatchService フォールバック」を両側の KDoc に明記
+- デフォルト name の裁定: prefs 規約（`<packageName>_preferences`）に揃える。getDefaultDaybookSharedPreferences のデフォルトと一致し、デフォルト同士で両顔が同一ストアを指す。core の Daybook.open の既定 "daybook" とは食い違うが、Android では Context 拡張が正規の入口なので実害は薄い
+- importFromSharedPreferences の意味論を「ストア生成時のみ」に統一: openDaybook が先にストアを生成していた場合、後から import フラグつきで prefs 顔を開いても取り込みは走らない（レジストリの onCreate フックが実行位置。失敗時はストアを閉じてキャッシュに載せない）
+- リスナーの非対称性（仕様として明記）: Daybook 顔のリスナーには prefs 顔経由の編集も届くが、SharedPreferences のリスナーに届くのは prefs 顔の Editor 経由の編集だけ（フレームワークのリスナー契約の再現）。TestDaybook と同じ非対称性
+- オプション不一致は顔をまたいで fail-fast: prefs 顔の durability は常に既定（ASYNC）のため、SYNC で開いた name を prefs 顔で開くと IllegalArgumentException
 
 マイグレーションの結線スロット（型は MigrationSource タスクで切る）:
 

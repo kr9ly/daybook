@@ -4,3 +4,4 @@ NOTES.local.md
 build/
 local.properties
 .idea/
+.kotlin/

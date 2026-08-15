@@ -97,6 +97,11 @@ public interface Daybook {
          * [configure] のオプションはインスタンス生成時（プロセス内で最初の open）にだけ
          * 使われる。同じストアの再取得でオプションが一致しない場合は IllegalArgumentException。
          *
+         * Android では :daybook の `Context.openDaybook` が正規の入口。あちらは
+         * multiProcess の変更検知に FileObserver（inotify）、ディレクトリ fsync に
+         * android.system.Os を結線する。素の open はプラットフォーム既定
+         * （JVM では WatchService）へのフォールバックになる。
+         *
          * ジャーナルとして読めないファイルがある場合は
          * [io.github.kr9ly.daybook.journal.JournalFormatException]、
          * レコードが KV 操作として読めない場合は [KvEncodingException]。

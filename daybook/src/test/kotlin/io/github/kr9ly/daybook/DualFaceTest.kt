@@ -1,0 +1,153 @@
+package io.github.kr9ly.daybook
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.os.Looper
+import androidx.test.core.app.ApplicationProvider
+import io.github.kr9ly.daybook.kv.Durability
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+/**
+ * 両顔統合のテスト — 同じ name の [Context.openDaybook]（Daybook の顔）と
+ * [Context.getDaybookSharedPreferences]（SharedPreferences の顔）が同一ストアを共有する契約。
+ */
+@RunWith(RobolectricTestRunner::class)
+class DualFaceTest {
+
+    private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @After
+    fun tearDown() {
+        DaybookPreferencesCache.resetForTesting()
+    }
+
+    // --- ストア共有 ---
+
+    @Test
+    fun bothFaces_shareTheSameStore() {
+        val daybook = context.openDaybook("settings")
+        val prefs = context.getDaybookSharedPreferences("settings")
+
+        prefs.edit().putString("from-prefs", "value").commit()
+        assertEquals("value", daybook.getString("from-prefs", null))
+
+        daybook.edit { putString("from-daybook", "value") }
+        assertEquals("value", prefs.getString("from-daybook", null))
+    }
+
+    @Test
+    fun bothFaces_shareTheSameStore_whenPrefsFaceOpensFirst() {
+        val prefs = context.getDaybookSharedPreferences("settings")
+        val daybook = context.openDaybook("settings")
+        prefs.edit().putInt("count", 7).commit()
+        assertEquals(7, daybook.getInt("count", 0))
+    }
+
+    @Test
+    fun defaultNames_pointToTheSameStore() {
+        // openDaybook のデフォルト name は prefs 規約（<packageName>_preferences）に揃えてあり、
+        // デフォルト同士で両顔が同一ストアを指す（裁定 2026-08-15）
+        val daybook = context.openDaybook()
+        val prefs = context.getDefaultDaybookSharedPreferences()
+        prefs.edit().putBoolean("flag", true).commit()
+        assertTrue(daybook.getBoolean("flag", false))
+    }
+
+    // --- リスナーの相互可視性 ---
+
+    @Test
+    fun daybookListener_seesPrefsFaceEdits() {
+        val daybook = context.openDaybook("settings")
+        val prefs = context.getDaybookSharedPreferences("settings")
+        val latch = CountDownLatch(1)
+        var seen: Any? = null
+        daybook.addChangeListener { key, newValue ->
+            if (key == "key") {
+                seen = newValue
+                latch.countDown()
+            }
+        }
+        prefs.edit().putString("key", "value").commit()
+        assertTrue(latch.await(10, TimeUnit.SECONDS))
+        assertEquals("value", seen)
+    }
+
+    @Test
+    fun prefsListener_doesNotSeeDaybookFaceEdits() {
+        // SharedPreferences リスナーはフレームワークの契約を再現しており、
+        // この顔の Editor 経由の編集だけが届く（KDoc に明記した非対称性）
+        val daybook = context.openDaybook("settings")
+        val prefs = context.getDaybookSharedPreferences("settings")
+        val seenKeys = mutableListOf<String?>()
+        // 登録はローカル変数経由（リスナー保持は WeakHashMap のため、無名ラムダ直渡しだと回収されうる）
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> seenKeys.add(key) }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+
+        daybook.edit { putString("from-daybook", "value") }
+        prefs.edit().putString("from-prefs", "value").commit()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf<String?>("from-prefs"), seenKeys)
+    }
+
+    // --- オプション不一致の fail-fast ---
+
+    @Test
+    fun prefsFace_onSyncDurabilityStore_isRejected() {
+        context.openDaybook("settings") { durability = Durability.SYNC }
+        assertThrows(IllegalArgumentException::class.java) {
+            context.getDaybookSharedPreferences("settings")
+        }
+    }
+
+    @Test
+    fun multiProcessFlagMismatchAcrossFaces_isRejected() {
+        context.openDaybook("settings") { multiProcess = true }
+        assertThrows(IllegalArgumentException::class.java) {
+            context.getDaybookSharedPreferences("settings")
+        }
+    }
+
+    @Test
+    fun matchingOptionsAcrossFaces_areAccepted() {
+        context.openDaybook("mp") { multiProcess = true }
+        val prefs = context.getDaybookSharedPreferences("mp", DaybookOptions(multiProcess = true))
+        prefs.edit().putInt("n", 1).commit()
+        assertEquals(1, context.openDaybook("mp") { multiProcess = true }.getInt("n", 0))
+    }
+
+    // --- 透過 import はストア生成時のみ ---
+
+    @Test
+    fun importFlag_hasNoEffectWhenDaybookFaceCreatedStoreFirst() {
+        context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .edit().putString("legacy", "value").commit()
+
+        context.openDaybook("settings")
+        val prefs = context.getDaybookSharedPreferences(
+            "settings",
+            DaybookOptions(importFromSharedPreferences = true),
+        )
+        // ストアは openDaybook が生成済みなのでキャッシュヒット扱いになり、取り込みは走らない
+        assertEquals(null, prefs.getString("legacy", null))
+    }
+
+    // --- 永続化 ---
+
+    @Test
+    fun daybookFaceData_survivesCacheReset() {
+        context.openDaybook("settings").edit { putInt("count", 42) }
+        DaybookPreferencesCache.resetForTesting()
+        assertEquals(42, context.openDaybook("settings").getInt("count", 0))
+        assertEquals(42, context.getDaybookSharedPreferences("settings").getInt("count", 0))
+    }
+}

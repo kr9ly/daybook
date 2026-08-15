@@ -2,9 +2,9 @@ package io.github.kr9ly.daybook
 
 import android.content.Context
 import android.content.SharedPreferences
-import io.github.kr9ly.daybook.io.FilePath
 import io.github.kr9ly.daybook.journal.FileObserverJournalWatcherFactory
 import io.github.kr9ly.daybook.journal.defaultDirectorySync
+import io.github.kr9ly.daybook.kv.DaybookRegistry
 import io.github.kr9ly.daybook.kv.KvStore
 import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 import java.io.File
@@ -34,6 +34,13 @@ public class DaybookOptions(
  * フレームワーク API と同じく、同一プロセス内では同じ [name] に常に同一インスタンスを返すため、
  * ある参照経由で登録したリスナーには別の参照経由の編集も届く。
  *
+ * 同じ [name] を [openDaybook] で開くと、裏のストアは同一になる（両顔統合）:
+ * どちらの顔からの編集ももう一方の顔の読み出しに即座に見え、Daybook 側の変更リスナーには
+ * SharedPreferences 顔経由の編集も届く。逆は非対称で、SharedPreferences のリスナーに届くのは
+ * この顔の Editor 経由の編集だけ（フレームワークのリスナー契約を再現しているため）。
+ * Daybook 側は durability を選べるが、この顔は常に既定（ASYNC）なので、同じ [name] を
+ * SYNC で開いている場合はオプション不一致で [IllegalArgumentException] になる。
+ *
  * データは `filesDir/daybook/` 配下に置かれ、フレームワークの `shared_prefs/` とは完全に別領域。
  * 取得箇所の差し替えがそのままデータソースの切り替えになる。
  *
@@ -52,8 +59,8 @@ public class DaybookOptions(
  * 取り込みは一度きりで、以後のオープン（アプリ再起動を含む）では再取り込みされない —
  * マイグレーション後に行った編集が上書きされることはない。フレームワークのファイルはそのまま残る。
  * 消したい場合は [importSharedPreferencesIntoDaybook] を `deleteSource = true` で使う。
- * 取り込みが走るのはこの呼び出しがインスタンスを生成したときだけで、キャッシュヒット時に
- * フラグの効果はない。multiProcess フラグとの対比に注意: multiProcess は全呼び出しで一致必須・
+ * 取り込みが走るのは裏のストアが生成されたときだけで、キャッシュヒット時（同じ [name] を
+ * [openDaybook] が先に開いていた場合を含む）にフラグの効果はない。multiProcess フラグとの対比に注意: multiProcess は全呼び出しで一致必須・
  * 不一致は例外だが、import フラグは生成時の挙動だけを表し、以後は黙って無視される。
  *
  * @param name prefs 名。空文字と `/` を含む名前は不可。
@@ -83,21 +90,20 @@ public fun Context.getDefaultDaybookSharedPreferences(
 ): SharedPreferences = getDaybookSharedPreferences("${packageName}_preferences", options)
 
 /**
- * name → インスタンスのプロセス内キャッシュ。
+ * name → SharedPreferences 顔のプロセス内キャッシュ。
  *
  * フレームワークの getSharedPreferences と同じく「同名は同一インスタンス」を保証する。
  * これはリスナーの可視性（別の取得口から登録したリスナーにも届く）と、
  * アダプタ内の commit 直列化（インスタンス単位のロック）の前提になる。
+ *
+ * 裏の [KvStore] はここでは開かず、core の [DaybookRegistry] から取得する。
+ * 同じ name には SharedPreferences の顔（この キャッシュ）と Daybook の顔
+ * （[Context.openDaybook]）が同一ストアを共有し、別々の KvStore を同じファイルに
+ * 開いてしまう多重オープン（破損リスク / 変更の不可視）は構造的に起きない。
  */
 internal object DaybookPreferencesCache {
 
-    private class Entry(
-        val prefs: SharedPreferences,
-        val store: KvStore,
-        val multiProcess: Boolean,
-    )
-
-    private val entries = HashMap<String, Entry>()
+    private val prefsByName = HashMap<String, SharedPreferences>()
 
     /** daybook の全ストアが置かれるディレクトリ。framework の shared_prefs/ とは別領域。 */
     fun daybookDir(context: Context): File = File(context.filesDir, "daybook")
@@ -108,29 +114,27 @@ internal object DaybookPreferencesCache {
         multiProcess: Boolean,
         importFromSharedPreferences: Boolean,
     ): SharedPreferences {
-        validateName(name)
-        synchronized(entries) {
-            entries[name]?.let { existing ->
-                require(existing.multiProcess == multiProcess) {
-                    "\"$name\" is already open with multiProcess=${existing.multiProcess}; " +
-                        "all callers must use the same flag for the same name"
-                }
-                // 取り込みはインスタンス生成時のみ。生成後に走らせると生成以降の編集を
-                // 上書きしうるため、キャッシュヒット時はフラグを無視する
-                return existing.prefs
-            }
-            val store = KvStore.open(
-                directory = FilePath(daybookDir(context).path),
+        synchronized(prefsByName) {
+            // 先にレジストリを通す: name 検証・オプション不一致の fail-fast はレジストリの責務。
+            // 顔のキャッシュにヒットする場合も、フラグ不一致はここで例外になる
+            val store = DaybookRegistry.getOrOpenStore(
+                directory = daybookDir(context).path,
                 name = name,
                 multiProcess = multiProcess,
+                watcherFactory = FileObserverJournalWatcherFactory(),
                 directorySync = defaultDirectorySync(),
-                watcherFactory = if (multiProcess) FileObserverJournalWatcherFactory() else null,
+                onCreate = { created ->
+                    // 取り込みはストアの生成時のみ。生成後に走らせると生成以降の編集を
+                    // 上書きしうるため、キャッシュヒット時（Context.openDaybook が先に
+                    // 生成した場合を含む）はフラグを無視する
+                    if (importFromSharedPreferences) {
+                        DaybookMigration.importInto(context, name, created, deleteSource = false)
+                    }
+                },
             )
-            if (importFromSharedPreferences) {
-                DaybookMigration.importInto(context, name, store, deleteSource = false)
-            }
+            prefsByName[name]?.let { return it }
             val prefs = DaybookSharedPreferences(store)
-            entries[name] = Entry(prefs, store, multiProcess)
+            prefsByName[name] = prefs
             return prefs
         }
     }
@@ -138,35 +142,19 @@ internal object DaybookPreferencesCache {
     /**
      * name のストアに対して [body] を実行する（マイグレーション用）。
      * キャッシュ済みならそのストア、未オープンなら一時的に開いて閉じる。
-     * 全体を entries のロック下で行い、[getOrCreate] や他のマイグレーションと直列化する。
+     * 直列化はレジストリのロックが担う（[DaybookRegistry.withStore] を参照）。
      */
-    fun <T> withStore(context: Context, name: String, body: (KvStore) -> T): T {
-        validateName(name)
-        synchronized(entries) {
-            entries[name]?.let { return body(it.store) }
-            val store = KvStore.open(
-                directory = FilePath(daybookDir(context).path),
-                name = name,
-                directorySync = defaultDirectorySync(),
-            )
-            return try {
-                body(store)
-            } finally {
-                store.close()
-            }
-        }
-    }
+    fun <T> withStore(context: Context, name: String, body: (KvStore) -> T): T =
+        DaybookRegistry.withStore(daybookDir(context).path, name, defaultDirectorySync(), body)
 
-    private fun validateName(name: String) {
-        require(name.isNotEmpty()) { "name must not be empty" }
-        require(!name.contains('/')) { "name must not contain '/': $name" }
-    }
-
-    /** テスト専用: キャッシュを空にし、開いていたストアを閉じる。 */
+    /**
+     * テスト専用: 顔のキャッシュを空にし、レジストリごとリセットする（プロセス再起動の模倣）。
+     * レジストリの全ストアが閉じるため、[Context.openDaybook] で取得した Daybook も無効になる。
+     */
     fun resetForTesting() {
-        synchronized(entries) {
-            entries.values.forEach { it.store.close() }
-            entries.clear()
+        synchronized(prefsByName) {
+            prefsByName.clear()
+            DaybookRegistry.resetForTesting()
         }
     }
 }
