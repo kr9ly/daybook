@@ -1,9 +1,9 @@
 package io.github.kr9ly.daybook.kv
 
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.nio.ByteBuffer
-import java.util.zip.CRC32
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.mkdirs
+import io.github.kr9ly.daybook.io.writeFileBytes
+import io.github.kr9ly.daybook.journal.Crc32
 
 /**
  * daybook 1.x のジャーナルフォーマット（version 1）をバイト列で組み立てるテスト用ライタ。
@@ -13,33 +13,32 @@ import java.util.zip.CRC32
  */
 internal class V1JournalWriter {
 
-    private val out = ByteArrayOutputStream()
+    private val out = mutableListOf<Byte>()
 
     init {
-        out.write(byteArrayOf(0x44, 0x42, 0x4B, 0x4A)) // "DBKJ"
-        out.write(int(1)) // version 1
+        raw(byteArrayOf(0x44, 0x42, 0x4B, 0x4A)) // "DBKJ"
+        raw(int(1)) // version 1
     }
 
     fun record(payload: ByteArray): V1JournalWriter {
-        val framed = ByteBuffer.allocate(4 + payload.size)
-        framed.putInt(payload.size)
-        framed.put(payload)
-        val crc = CRC32()
-        crc.update(framed.array())
-        out.write(framed.array())
-        out.write(int(crc.value.toInt()))
+        val framed = int(payload.size) + payload
+        val crc = Crc32()
+        crc.update(framed, 0, framed.size)
+        raw(framed)
+        raw(int(crc.value.toInt()))
         return this
     }
 
     /** レコード枠を通さずに生バイトを追記する（壊れたテールの再現用）。 */
     fun raw(bytes: ByteArray): V1JournalWriter {
-        out.write(bytes)
+        bytes.forEach { out.add(it) }
         return this
     }
 
-    fun writeTo(file: File): File {
-        file.parentFile.mkdirs()
-        file.writeBytes(out.toByteArray())
+    fun writeTo(file: FilePath): FilePath {
+        val parent = file.path.substringBeforeLast('/', "")
+        if (parent.isNotEmpty()) mkdirs(FilePath(parent))
+        writeFileBytes(file, out.toByteArray())
         return file
     }
 
@@ -69,22 +68,28 @@ internal class V1JournalWriter {
         fun build(body: PayloadBuilder.() -> Unit): ByteArray =
             PayloadBuilder().apply(body).toByteArray()
 
-        private fun int(value: Int): ByteArray = ByteBuffer.allocate(4).putInt(value).array()
+        /** ビッグエンディアン 4 バイトの int 表現。 */
+        private fun int(value: Int): ByteArray = byteArrayOf(
+            (value ushr 24).toByte(),
+            (value ushr 16).toByte(),
+            (value ushr 8).toByte(),
+            value.toByte(),
+        )
     }
 
     internal class PayloadBuilder {
-        private val out = ByteArrayOutputStream()
+        private val out = mutableListOf<Byte>()
 
-        fun write(byte: Int) = apply { out.write(byte) }
+        fun write(byte: Int) = apply { out.add(byte.toByte()) }
 
-        fun raw(bytes: ByteArray) = apply { out.write(bytes) }
+        fun raw(bytes: ByteArray) = apply { bytes.forEach { out.add(it) } }
 
-        fun int(value: Int) = apply { out.write(ByteBuffer.allocate(4).putInt(value).array()) }
+        fun int(value: Int) = apply { raw(Companion.int(value)) }
 
         fun string(value: String) = apply {
             val bytes = value.encodeToByteArray()
             int(bytes.size)
-            out.write(bytes)
+            raw(bytes)
         }
 
         fun value(value: Any) = apply {
@@ -101,7 +106,8 @@ internal class V1JournalWriter {
 
                 is Long -> {
                     write(3)
-                    out.write(ByteBuffer.allocate(8).putLong(value).array())
+                    int((value ushr 32).toInt())
+                    int(value.toInt())
                 }
 
                 is Float -> {

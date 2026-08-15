@@ -1,91 +1,76 @@
 package io.github.kr9ly.daybook.kv
 
+import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.startTestThread
+import io.github.kr9ly.daybook.concurrent.waitUntil
+import io.github.kr9ly.daybook.concurrent.withLock
 import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.createTempDirectory
+import io.github.kr9ly.daybook.io.writeFileBytes
 import io.github.kr9ly.daybook.journal.InterProcessLock
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalFormatException
 import io.github.kr9ly.daybook.journal.JournalWatcherFactory
-import io.github.kr9ly.daybook.journal.open
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.Closeable
-import java.io.File
-import java.util.Collections
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.Volatile
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * マルチプロセスモードの結合テスト。
  *
- * 実 FileLock は同一 JVM 内で重複取得できず、FileObserver は JVM で動かないため、
- * どちらも偽物を注入して「1 JVM 内の 2 store = 2 プロセス」を模す。
+ * 実 FileLock は同一プロセス内で重複取得できず、実 watcher の発火は非決定的なため、
+ * どちらも偽物を注入して「1 プロセス内の 2 store = 2 プロセス」を模す。
  * 実物どうしの結合（別プロセス間の FileLock・inotify）は Instrumentation テストの守備範囲。
  */
 class KvStoreMultiProcessTest {
 
-    @get:Rule
-    val tmp = TemporaryFolder()
+    private val tmp = createTempDirectory()
 
-    /** 同一 JVM 内で複数 store が共有する、プロセス間ロックの偽物。 */
-    private class FakeInterProcessLock(private val mutex: ReentrantLock) : InterProcessLock {
+    /** 同一プロセス内で複数 store が共有する、プロセス間ロックの偽物。 */
+    private class FakeInterProcessLock(private val mutex: Lock) : InterProcessLock {
         var closeCount = 0
 
-        override fun <T> withLock(body: () -> T): T {
-            mutex.lock()
-            try {
-                return body()
-            } finally {
-                mutex.unlock()
-            }
-        }
+        override fun <T> withLock(body: () -> T): T = mutex.withLock(body)
 
         override fun close() {
             closeCount++
         }
     }
 
-    /** 手動トリガの watcher。inotify の代わりにテストが [trigger] で検知を起こす。 */
-    private class ManualWatcherFactory : JournalWatcherFactory {
-        private val callbacks = CopyOnWriteArrayList<() -> Unit>()
-
-        override fun watch(directory: FilePath, onChange: () -> Unit): Closeable {
-            callbacks.add(onChange)
-            return Closeable { callbacks.remove(onChange) }
-        }
+    /** 手動トリガの watcher。実 watcher の代わりにテストが [trigger] で検知を起こす。 */
+    private class ManualWatcherFactory : JournalWatcherFactoryForTest() {
 
         /** 登録済みコールバックを同期的に呼ぶ（検知イベントの決定的な注入）。 */
         fun trigger() {
-            callbacks.forEach { it() }
+            callbacksSnapshot().forEach { it() }
         }
     }
 
     /** 配送スレッドから届く変更イベントの記録。 */
     private class Events {
-        private val list = Collections.synchronizedList(mutableListOf<Pair<String, Any?>>())
+        private val lock = Lock()
+        private val list = mutableListOf<Pair<String, Any?>>()
 
-        val listener = DaybookChangeListener { key, newValue -> list.add(key to newValue) }
+        val listener = DaybookChangeListener { key, newValue ->
+            lock.withLock { list.add(key to newValue) }
+        }
 
-        fun await(count: Int, timeoutMs: Long = 5000): List<Pair<String, Any?>> {
-            val deadline = System.currentTimeMillis() + timeoutMs
-            while (list.size < count && System.currentTimeMillis() < deadline) {
-                Thread.sleep(5)
-            }
-            return list.toList()
+        fun await(count: Int, timeoutMs: Int = 5000): List<Pair<String, Any?>> {
+            waitUntil(timeoutMs) { lock.withLock { list.size } >= count }
+            return lock.withLock { list.toList() }
         }
     }
 
-    private val sharedMutex = ReentrantLock()
+    private val sharedMutex = Lock()
 
     private fun openStore(
         watcherFactory: ManualWatcherFactory,
         compactionThreshold: Long = KvStore.DEFAULT_COMPACTION_THRESHOLD,
     ): KvStore = KvStore.open(
-        directory = tmp.root,
+        directory = tmp,
         name = "store",
         multiProcess = true,
         compactionThreshold = compactionThreshold,
@@ -184,7 +169,7 @@ class KvStoreMultiProcessTest {
 
     @Test
     fun ownWriteEcho_doesNotReapplyOrDuplicateNotifications() {
-        // inotify は自分の書き込みにも発火する。オフセットが進んでいるため二重適用されない
+        // 実 watcher は自分の書き込みにも発火する。オフセットが進んでいるため二重適用されない
         val watcherA = ManualWatcherFactory()
         openStore(watcherA).use { a ->
             val events = Events()
@@ -214,18 +199,28 @@ class KvStoreMultiProcessTest {
         }
     }
 
+    private class Done {
+        @Volatile
+        var finished = false
+    }
+
     @Test
     fun concurrentWriters_allWritesSurvive() {
         val watcherA = ManualWatcherFactory()
         val watcherB = ManualWatcherFactory()
         openStore(watcherA).use { a ->
             openStore(watcherB).use { b ->
-                val writers = listOf(
-                    Thread { repeat(100) { a.put("a$it", it) } },
-                    Thread { repeat(100) { b.put("b$it", it) } },
-                )
-                writers.forEach { it.start() }
-                writers.forEach { it.join() }
+                val doneA = Done()
+                val doneB = Done()
+                startTestThread {
+                    repeat(100) { a.put("a$it", it) }
+                    doneA.finished = true
+                }
+                startTestThread {
+                    repeat(100) { b.put("b$it", it) }
+                    doneB.finished = true
+                }
+                assertTrue(waitUntil { doneA.finished && doneB.finished })
                 watcherA.trigger()
                 watcherB.trigger()
                 assertEquals(200, a.getAll().size)
@@ -250,7 +245,7 @@ class KvStoreMultiProcessTest {
 
     @Test
     fun readFresh_onSingleProcessStore_behavesLikeGet() {
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { store ->
             store.put("key", "value")
             assertEquals("value", store.readFresh("key"))
             assertNull(store.readFresh("missing"))
@@ -321,7 +316,7 @@ class KvStoreMultiProcessTest {
                 val events = Events()
                 b.addListener(events.listener)
                 // マーカーを経ない世代ファイル（防御パス）を直接作る
-                JournalFile.open(File(tmp.root, "store.2.journal")).use { journal ->
+                JournalFile.open(tmp.resolve("store.2.journal")).use { journal ->
                     journal.append(KvOperationCodec.encode(KvOperation.Put("same", "value")))
                     journal.append(KvOperationCodec.encode(KvOperation.Put("new", 9)))
                 }
@@ -341,7 +336,7 @@ class KvStoreMultiProcessTest {
                 a.put("old", 1)
                 watcherB.trigger()
                 // スナップショット部に Put 以外が混ざった世代ファイル（形式上は合法）
-                JournalFile.open(File(tmp.root, "store.2.journal")).use { journal ->
+                JournalFile.open(tmp.resolve("store.2.journal")).use { journal ->
                     listOf(
                         KvOperation.Put("dead", 1),
                         KvOperation.Clear,
@@ -365,13 +360,13 @@ class KvStoreMultiProcessTest {
         // close しても登録を外さない watcher を注入する
         var captured: (() -> Unit)? = null
         val store = KvStore.open(
-            directory = tmp.root,
+            directory = tmp,
             name = "store",
             multiProcess = true,
             lockFactory = { FakeInterProcessLock(sharedMutex) },
             watcherFactory = { _, onChange ->
                 captured = onChange
-                Closeable {}
+                AutoCloseable {}
             },
         )
         store.put("key", 1)
@@ -389,11 +384,11 @@ class KvStoreMultiProcessTest {
 
     @Test
     fun openFailure_releasesInterProcessLock() {
-        File(tmp.root, "store.1.journal").writeBytes("not a journal".toByteArray())
+        writeFileBytes(tmp.resolve("store.1.journal"), "not a journal".encodeToByteArray())
         val lock = FakeInterProcessLock(sharedMutex)
-        assertThrows(JournalFormatException::class.java) {
+        assertFailsWith<JournalFormatException> {
             KvStore.open(
-                directory = tmp.root,
+                directory = tmp,
                 name = "store",
                 multiProcess = true,
                 lockFactory = { lock },
@@ -407,7 +402,7 @@ class KvStoreMultiProcessTest {
     fun close_releasesInterProcessLock() {
         val lock = FakeInterProcessLock(sharedMutex)
         KvStore.open(
-            directory = tmp.root,
+            directory = tmp,
             name = "store",
             multiProcess = true,
             lockFactory = { lock },
@@ -415,4 +410,17 @@ class KvStoreMultiProcessTest {
         ).close()
         assertEquals(1, lock.closeCount)
     }
+}
+
+/** コールバック登録を Lock で守る watcher 基底（CopyOnWriteArrayList の common 代替）。 */
+internal abstract class JournalWatcherFactoryForTest : JournalWatcherFactory {
+    private val lock = Lock()
+    private val callbacks = mutableListOf<() -> Unit>()
+
+    override fun watch(directory: FilePath, onChange: () -> Unit): AutoCloseable {
+        lock.withLock { callbacks.add(onChange) }
+        return AutoCloseable { lock.withLock { callbacks.remove(onChange) } }
+    }
+
+    protected fun callbacksSnapshot(): List<() -> Unit> = lock.withLock { callbacks.toList() }
 }

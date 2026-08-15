@@ -1,19 +1,18 @@
 package io.github.kr9ly.daybook.kv
 
 import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.IoException
+import io.github.kr9ly.daybook.io.createTempDirectory
 import io.github.kr9ly.daybook.journal.DirectorySync
 import io.github.kr9ly.daybook.journal.JournalWatcherFactory
 import io.github.kr9ly.daybook.journal.platformDirectorySync
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.IOException
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * [DaybookRegistry] のプラットフォーム注入ブリッジ（:daybook 用）の契約テスト —
@@ -24,15 +23,14 @@ import kotlin.test.assertFailsWith
  */
 class DaybookRegistryBridgeTest {
 
-    @get:Rule
-    val folder = TemporaryFolder()
+    private val folder = createTempDirectory()
 
-    @After
+    @AfterTest
     fun tearDown() {
         DaybookRegistry.resetForTesting()
     }
 
-    private fun dir(): String = folder.root.path
+    private fun dir(): String = folder.path
 
     private object StoreSchema : DaybookSchema("store")
 
@@ -163,14 +161,14 @@ class DaybookRegistryBridgeTest {
 
     @Test
     fun getOrOpenStore_onCreateFailureClosesStoreAndDoesNotCache() {
-        assertFailsWith<IOException> {
+        assertFailsWith<IoException> {
             DaybookRegistry.getOrOpenStore(
                 dir(),
                 "store",
                 multiProcess = false,
                 watcherFactory = RecordingWatcherFactory(),
                 directorySync = platformDirectorySync(),
-                onCreate = { throw IOException("import failed") },
+                onCreate = { throw IoException("import failed") },
             )
         }
         // キャッシュに載っていないので、次のオープンは新規生成として onCreate をやり直す。
@@ -262,7 +260,7 @@ class DaybookRegistryBridgeTest {
         assertFalse(
             runCatching {
                 DaybookRegistry.withStore<Unit>(dir(), "store", platformDirectorySync()) {
-                    throw IOException("boom")
+                    throw IoException("boom")
                 }
             }.isSuccess,
         )

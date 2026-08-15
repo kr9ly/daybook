@@ -1,8 +1,8 @@
 package io.github.kr9ly.daybook.kv
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class KvOperationCodecTest {
 
@@ -135,17 +135,17 @@ class KvOperationCodecTest {
 
     @Test
     fun encode_rejectsUnsupportedValueType() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             KvOperationCodec.encode(KvOperation.Put("key", 'x')) // Char は非対応
         }
     }
 
     @Test
     fun encode_rejectsNonStringSetElement() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             KvOperationCodec.encode(KvOperation.Put("key", setOf(1, 2)))
         }
-        assertThrows(IllegalArgumentException::class.java) {
+        assertFailsWith<IllegalArgumentException> {
             KvOperationCodec.encode(KvOperation.Put("key", setOf("a", null)))
         }
     }
@@ -153,7 +153,7 @@ class KvOperationCodecTest {
     // --- decode 側の形式検査 ---
 
     private fun assertDecodeFails(payload: ByteArray) {
-        assertThrows(KvEncodingException::class.java) {
+        assertFailsWith<KvEncodingException> {
             KvOperationCodec.decode(payload)
         }
     }

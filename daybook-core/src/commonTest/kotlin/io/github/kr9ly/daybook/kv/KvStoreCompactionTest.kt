@@ -1,40 +1,39 @@
 package io.github.kr9ly.daybook.kv
 
+import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.waitUntil
+import io.github.kr9ly.daybook.concurrent.withLock
 import io.github.kr9ly.daybook.io.FilePath
-import io.github.kr9ly.daybook.io.toFilePath
+import io.github.kr9ly.daybook.io.createTempDirectory
+import io.github.kr9ly.daybook.io.fileExists
+import io.github.kr9ly.daybook.io.renameFile
+import io.github.kr9ly.daybook.io.writeFileBytes
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.SyncMode
-import io.github.kr9ly.daybook.journal.open
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class KvStoreCompactionTest {
 
-    @get:Rule
-    val tmp = TemporaryFolder()
+    private val tmp = createTempDirectory()
 
     private class SimulatedCrash : RuntimeException("simulated crash")
 
-    private fun generationFile(generation: Long): File =
-        File(tmp.root, "store.$generation.journal")
+    private fun generationFile(generation: Long): FilePath =
+        tmp.resolve("store.$generation.journal")
 
-    private fun tempFile(generation: Long): File =
-        File(tmp.root, "store.$generation.journal.tmp")
+    private fun tempFile(generation: Long): FilePath =
+        tmp.resolve("store.$generation.journal.tmp")
 
     /** threshold = 1 は「最初の追記で必ず compaction する」設定（baseline は 0 始まり）。 */
     private fun openStore(
         compactionThreshold: Long = 1,
         compactionHook: (CompactionPhase) -> Unit = {},
     ): KvStore = KvStore.open(
-        directory = tmp.root,
+        directory = tmp,
         name = "store",
         compactionThreshold = compactionThreshold,
         compactionHook = compactionHook,
@@ -55,10 +54,10 @@ class KvStoreCompactionTest {
             listOf(CompactionPhase.SNAPSHOT_WRITTEN, CompactionPhase.GENERATION_COMMITTED),
             phases,
         )
-        assertFalse(generationFile(1).exists())
-        assertTrue(generationFile(2).exists())
+        assertFalse(fileExists(generationFile(1)))
+        assertTrue(fileExists(generationFile(2)))
         // 大きい閾値で開き直しても状態が保たれている
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { store ->
             assertEquals(mapOf<String, Any>("a" to 1, "b" to 2), store.getAll())
         }
     }
@@ -66,7 +65,7 @@ class KvStoreCompactionTest {
     @Test
     fun compactedJournal_containsOnlyLiveEntries() {
         // 大きい閾値でごみ（上書き・削除済みキー）を溜める
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { store ->
             store.put("keep", "value")
             store.put("keep", "value") // 上書きのごみ
             store.put("dead", "x")
@@ -108,20 +107,19 @@ class KvStoreCompactionTest {
     @Test
     fun compaction_emitsNoChangeEvents() {
         openStore().use { store ->
+            val lock = Lock()
             val events = mutableListOf<Pair<String, Any?>>()
-            val latch = CountDownLatch(3)
             store.addListener { key, newValue ->
-                synchronized(events) { events.add(key to newValue) }
-                latch.countDown()
+                lock.withLock { events.add(key to newValue) }
             }
             store.put("a", 1) // compaction を伴う
             store.put("b", 2)
             store.remove("a")
-            assertTrue(latch.await(5, TimeUnit.SECONDS))
+            assertTrue(waitUntil { lock.withLock { events.size } >= 3 })
             // compaction 由来の余計なイベントが混ざっていない
             assertEquals(
                 listOf<Pair<String, Any?>>("a" to 1, "b" to 2, "a" to null),
-                events,
+                lock.withLock { events.toList() },
             )
         }
     }
@@ -133,17 +131,17 @@ class KvStoreCompactionTest {
         openStore(compactionHook = { phase ->
             if (phase == CompactionPhase.SNAPSHOT_WRITTEN) throw SimulatedCrash()
         }).use { store ->
-            assertThrows(SimulatedCrash::class.java) {
+            assertFailsWith<SimulatedCrash> {
                 store.put("key", "value")
             }
         }
         // 追記自体はジャーナルに載っているため値は失われない
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { store ->
             assertEquals("value", store.get("key"))
         }
-        assertTrue(generationFile(1).exists())
-        assertFalse(tempFile(2).exists()) // 残骸はオープン時に掃除される
-        assertFalse(generationFile(2).exists())
+        assertTrue(fileExists(generationFile(1)))
+        assertFalse(fileExists(tempFile(2))) // 残骸はオープン時に掃除される
+        assertFalse(fileExists(generationFile(2)))
     }
 
     @Test
@@ -151,16 +149,16 @@ class KvStoreCompactionTest {
         openStore(compactionHook = { phase ->
             if (phase == CompactionPhase.GENERATION_COMMITTED) throw SimulatedCrash()
         }).use { store ->
-            assertThrows(SimulatedCrash::class.java) {
+            assertFailsWith<SimulatedCrash> {
                 store.put("key", "value")
             }
         }
         // rename 済みの新世代が正となり、取り残された旧世代は次のオープンで削除される
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { store ->
             assertEquals("value", store.get("key"))
         }
-        assertTrue(generationFile(2).exists())
-        assertFalse(generationFile(1).exists())
+        assertTrue(fileExists(generationFile(2)))
+        assertFalse(fileExists(generationFile(1)))
     }
 
     // --- ディレクトリ状態からの復旧 ---
@@ -168,13 +166,13 @@ class KvStoreCompactionTest {
     @Test
     fun tempOnlyDirectory_adoptsTempAsCurrentGeneration() {
         // 「旧世代の削除は届いたが rename が巻き戻った」電源断相当の状態を作る
-        KvStore.open(tmp.root, "store").use { it.put("key", "value") }
-        assertTrue(generationFile(1).renameTo(tempFile(2)))
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { it.put("key", "value") }
+        assertTrue(renameFile(generationFile(1), tempFile(2)))
+        KvStore.open(tmp, "store").use { store ->
             assertEquals("value", store.get("key"))
         }
-        assertTrue(generationFile(2).exists())
-        assertFalse(tempFile(2).exists())
+        assertTrue(fileExists(generationFile(2)))
+        assertFalse(fileExists(tempFile(2)))
     }
 
     @Test
@@ -185,10 +183,10 @@ class KvStoreCompactionTest {
         JournalFile.open(generationFile(2)).use {
             it.append(KvOperationCodec.encode(KvOperation.Put("key", "new")))
         }
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { store ->
             assertEquals("new", store.get("key"))
         }
-        assertFalse(generationFile(1).exists())
+        assertFalse(fileExists(generationFile(1)))
     }
 
     // --- ディレクトリ fsync（SYNC モードの耐久性契約） ---
@@ -197,7 +195,7 @@ class KvStoreCompactionTest {
     fun syncMode_syncsDirectoryAtOpenAndAfterRename() {
         val synced = mutableListOf<FilePath>()
         KvStore.open(
-            directory = tmp.root,
+            directory = tmp,
             name = "store",
             syncMode = SyncMode.SYNC,
             compactionThreshold = 1,
@@ -208,14 +206,14 @@ class KvStoreCompactionTest {
             store.put("key", "v") // compaction が走り、rename 後にもう一度
             assertEquals(2, synced.size)
         }
-        assertEquals(listOf(tmp.root.toFilePath(), tmp.root.toFilePath()), synced)
+        assertEquals(listOf(tmp, tmp), synced)
     }
 
     @Test
     fun asyncMode_neverSyncsDirectory() {
         var syncs = 0
         KvStore.open(
-            directory = tmp.root,
+            directory = tmp,
             name = "store",
             compactionThreshold = 1,
             directorySync = { syncs++ },
@@ -226,23 +224,23 @@ class KvStoreCompactionTest {
     }
 
     @Test
-    fun syncModeWithRealDirectorySync_worksOnJvm() {
-        // デフォルトの DirectorySync（JVM では nio 実装）で実際に fsync まで通す
-        KvStore.open(tmp.root, "store", syncMode = SyncMode.SYNC, compactionThreshold = 1).use { store ->
+    fun syncModeWithRealDirectorySync_persistsAcrossReopen() {
+        // デフォルトの DirectorySync（プラットフォーム実装）で実際に fsync まで通す
+        KvStore.open(tmp, "store", syncMode = SyncMode.SYNC, compactionThreshold = 1).use { store ->
             store.put("key", "value")
         }
-        KvStore.open(tmp.root, "store", syncMode = SyncMode.SYNC).use { store ->
+        KvStore.open(tmp, "store", syncMode = SyncMode.SYNC).use { store ->
             assertEquals("value", store.get("key"))
         }
     }
 
     @Test
     fun staleTempAlongsideGeneration_isDeletedAtOpen() {
-        KvStore.open(tmp.root, "store").use { it.put("key", 1) }
-        tempFile(1).writeBytes(byteArrayOf(1, 2, 3))
-        KvStore.open(tmp.root, "store").use { store ->
+        KvStore.open(tmp, "store").use { it.put("key", 1) }
+        writeFileBytes(tempFile(1), byteArrayOf(1, 2, 3))
+        KvStore.open(tmp, "store").use { store ->
             assertEquals(1, store.get("key"))
         }
-        assertFalse(tempFile(1).exists())
+        assertFalse(fileExists(tempFile(1)))
     }
 }

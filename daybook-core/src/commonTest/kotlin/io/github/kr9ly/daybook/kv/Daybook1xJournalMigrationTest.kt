@@ -1,17 +1,20 @@
 package io.github.kr9ly.daybook.kv
 
+import io.github.kr9ly.daybook.io.FilePath
 import io.github.kr9ly.daybook.io.IoException
+import io.github.kr9ly.daybook.io.createTempDirectory
+import io.github.kr9ly.daybook.io.fileExists
+import io.github.kr9ly.daybook.io.readFileBytes
+import io.github.kr9ly.daybook.io.setDirectoryWritable
+import io.github.kr9ly.daybook.io.writeFileBytes
 import io.github.kr9ly.daybook.journal.platformDirectorySync
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * 1.x ジャーナルの一回きり取り込み（[MigrationSource.Companion.daybook1xJournal]）の契約テスト。
@@ -21,24 +24,23 @@ import kotlin.test.assertFailsWith
  */
 class Daybook1xJournalMigrationTest {
 
-    @get:Rule
-    val folder = TemporaryFolder()
+    private val folder = createTempDirectory()
 
-    @After
+    @AfterTest
     fun tearDown() {
         DaybookRegistry.resetForTesting()
     }
 
-    private fun dir(): String = folder.root.path
+    private fun dir(): String = folder.path
 
-    private fun v1File(name: String = "daybook", generation: Long = 1): File =
-        File(folder.root, "$name.$generation.journal")
+    private fun v1File(name: String = "daybook", generation: Long = 1): FilePath =
+        folder.resolve("$name.$generation.journal")
 
-    private fun setAsideFile(name: String = "daybook"): File =
-        File(folder.root, "$name.journal.v1")
+    private fun setAsideFile(name: String = "daybook"): FilePath =
+        folder.resolve("$name.journal.v1")
 
-    private fun markerFile(name: String = "daybook", id: String = "daybook-1x"): File =
-        File(folder.root, "$name.$id.migrated")
+    private fun markerFile(name: String = "daybook", id: String = "daybook-1x"): FilePath =
+        folder.resolve("$name.$id.migrated")
 
     // 名前ごとにスキーマを固定する（同名の再オープンはスキーマ同一性検査があるため）
     private val schemas = HashMap<String, DaybookSchema>()
@@ -68,7 +70,7 @@ class Daybook1xJournalMigrationTest {
         assertEquals("value", daybook.getString("string", null))
         assertEquals(42, daybook.getInt("int", 0))
         assertEquals(1L shl 40, daybook.getLong("long", 0))
-        assertEquals(1.5f, daybook.getFloat("float", 0f), 0f)
+        assertEquals(1.5f, daybook.getFloat("float", 0f))
         assertEquals(true, daybook.getBoolean("boolean", false))
         assertEquals(false, daybook.getBoolean("boolean-false", true))
         assertEquals(setOf("a", "b"), daybook.getStringSet("set", null))
@@ -137,18 +139,19 @@ class Daybook1xJournalMigrationTest {
 
     @Test
     fun migration_setsAsideV1JournalAndCreatesMarker() {
-        val original = V1JournalWriter()
-            .record(V1JournalWriter.put("key", "value"))
-            .writeTo(v1File())
-            .readBytes()
+        val original = readFileBytes(
+            V1JournalWriter()
+                .record(V1JournalWriter.put("key", "value"))
+                .writeTo(v1File()),
+        )
 
         openWith1xMigration()
 
-        assertTrue(markerFile().exists())
-        assertTrue(setAsideFile().exists())
-        assertTrue(original.contentEquals(setAsideFile().readBytes()))
+        assertTrue(fileExists(markerFile()))
+        assertTrue(fileExists(setAsideFile()))
+        assertTrue(original.contentEquals(readFileBytes(setAsideFile())))
         // 世代ファイルは v2 で作り直されている（1.x の中身がそのまま残っていない）
-        assertEquals(2, v1File().readBytes()[7].toInt())
+        assertEquals(2, readFileBytes(v1File())[7].toInt())
     }
 
     @Test
@@ -162,9 +165,9 @@ class Daybook1xJournalMigrationTest {
         assertFalse(daybook.contains("old"))
         // 旧世代の v1 ファイルは削除済み。世代 1 のパスに残っているのはエンジンが
         // 作り直した新規の v2 ジャーナル（1.x の中身ではない）
-        assertEquals(2, v1File(generation = 1).readBytes()[7].toInt())
+        assertEquals(2, readFileBytes(v1File(generation = 1))[7].toInt())
         // 退避されたのは最大世代（gen2）の方
-        assertTrue(setAsideFile().readBytes()[7].toInt() == 1)
+        assertTrue(readFileBytes(setAsideFile())[7].toInt() == 1)
     }
 
     @Test
@@ -172,7 +175,7 @@ class Daybook1xJournalMigrationTest {
         // 1.x の compaction が rename 前に落ちた形: 世代ファイルなし・一時ファイルだけ
         V1JournalWriter()
             .record(V1JournalWriter.put("key", "from-temp"))
-            .writeTo(File(folder.root, "daybook.2.journal.tmp"))
+            .writeTo(folder.resolve("daybook.2.journal.tmp"))
 
         assertEquals("from-temp", openWith1xMigration().getString("key", null))
     }
@@ -195,7 +198,7 @@ class Daybook1xJournalMigrationTest {
         V1JournalWriter().record(V1JournalWriter.put("key", "from-1x")).writeTo(setAsideFile())
 
         assertEquals("from-1x", openWith1xMigration().getString("key", null))
-        assertTrue(markerFile().exists())
+        assertTrue(fileExists(markerFile()))
     }
 
     @Test
@@ -203,8 +206,8 @@ class Daybook1xJournalMigrationTest {
         val daybook = openWith1xMigration()
 
         assertFalse(daybook.contains("key"))
-        assertTrue(markerFile().exists())
-        assertFalse(setAsideFile().exists())
+        assertTrue(fileExists(markerFile()))
+        assertFalse(fileExists(setAsideFile()))
     }
 
     @Test
@@ -215,19 +218,19 @@ class Daybook1xJournalMigrationTest {
         val daybook = openWith1xMigration()
 
         assertEquals("v2-data", daybook.getString("key", null))
-        assertTrue(markerFile().exists())
-        assertFalse(setAsideFile().exists())
+        assertTrue(fileExists(markerFile()))
+        assertFalse(fileExists(setAsideFile()))
     }
 
     @Test
     fun headerOnlyRemnant_isTreatedAsEmpty() {
         // ヘッダ書き込み途中のクラッシュ相当（8 バイト未満）。エンジンが v2 として書き直す
-        v1File().writeBytes(byteArrayOf(0x44, 0x42, 0x4B, 0x4A, 0, 0))
+        writeFileBytes(v1File(), byteArrayOf(0x44, 0x42, 0x4B, 0x4A, 0, 0))
 
         val daybook = openWith1xMigration()
 
         assertFalse(daybook.contains("key"))
-        assertTrue(markerFile().exists())
+        assertTrue(fileExists(markerFile()))
     }
 
     @Test
@@ -254,22 +257,22 @@ class Daybook1xJournalMigrationTest {
 
     private fun assertMigrationFails(name: String = "daybook") {
         assertFailsWith<IoException> { openWith1xMigration(name) }
-        assertFalse(markerFile(name).exists())
+        assertFalse(fileExists(markerFile(name)))
     }
 
     @Test
     fun badMagic_throws() {
-        v1File().writeBytes(byteArrayOf(1, 2, 3, 4, 0, 0, 0, 1))
+        writeFileBytes(v1File(), byteArrayOf(1, 2, 3, 4, 0, 0, 0, 1))
         assertMigrationFails()
     }
 
     @Test
     fun corruptedSetAside_throws() {
-        setAsideFile().writeBytes(byteArrayOf(1, 2, 3))
+        writeFileBytes(setAsideFile(), byteArrayOf(1, 2, 3))
         assertMigrationFails()
 
         V1JournalWriter().writeTo(setAsideFile())
-        setAsideFile().writeBytes(setAsideFile().readBytes().also { it[7] = 9 }) // version 書き換え
+        writeFileBytes(setAsideFile(), readFileBytes(setAsideFile()).also { it[7] = 9 }) // version 書き換え
         assertMigrationFails()
     }
 
@@ -296,13 +299,13 @@ class Daybook1xJournalMigrationTest {
     @Test
     fun setAsideRenameFailure_throws() {
         V1JournalWriter().record(V1JournalWriter.put("key", "value")).writeTo(v1File())
-        folder.root.setWritable(false)
+        setDirectoryWritable(folder, false)
         try {
             assertFailsWith<IoException> { openWith1xMigration() }
         } finally {
-            folder.root.setWritable(true)
+            setDirectoryWritable(folder, true)
         }
-        assertFalse(markerFile().exists())
+        assertFalse(fileExists(markerFile()))
         // 元の 1.x ジャーナルは無傷（次のオープンで再試行できる）
         assertEquals("value", openWith1xMigration().getString("key", null))
     }
@@ -329,11 +332,11 @@ class Daybook1xJournalMigrationTest {
         val source = FakeSource(results = mutableListOf(null, mapOf("key" to "late")))
 
         assertNull(openWith(source).getString("key", null))
-        assertFalse(markerFile(id = "fake").exists())
+        assertFalse(fileExists(markerFile(id = "fake")))
         DaybookRegistry.resetForTesting()
 
         assertEquals("late", openWith(source).getString("key", null))
-        assertTrue(markerFile(id = "fake").exists())
+        assertTrue(fileExists(markerFile(id = "fake")))
         assertEquals(2, source.readCount)
     }
 
@@ -385,7 +388,7 @@ class Daybook1xJournalMigrationTest {
                 mapOf("key" to Any())
         }
         assertFailsWith<IllegalArgumentException> { openWith(bad) }
-        assertFalse(markerFile(id = "bad").exists())
+        assertFalse(fileExists(markerFile(id = "bad")))
 
         // 失敗したストアはキャッシュに載っていない（開き直せて、部分適用も残っていない）
         val recovered = openWith(FakeSource(results = mutableListOf(mapOf("key" to "ok"))))
@@ -404,7 +407,7 @@ class Daybook1xJournalMigrationTest {
         ) { store -> store.get("key") }
 
         assertEquals("from-1x", value)
-        assertTrue(markerFile().exists())
+        assertTrue(fileExists(markerFile()))
         // 一時オープンでも取り込みは永続化されている
         assertEquals("from-1x", openWith1xMigration().getString("key", null))
     }

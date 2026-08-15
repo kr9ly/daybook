@@ -1,12 +1,12 @@
 package io.github.kr9ly.daybook.kv
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.io.IOException
+import io.github.kr9ly.daybook.io.IoException
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * [KvStore.openInMemory] のテスト。
@@ -52,13 +52,13 @@ class KvStoreInMemoryTest {
     }
 
     @Test
-    fun sinkThrowingIOException_propagates_andStateStaysUntouched() {
+    fun sinkThrowingIoException_propagates_andStateStaysUntouched() {
         var fail = false
-        val store = KvStore.openInMemory { if (fail) throw IOException("injected") }
+        val store = KvStore.openInMemory { if (fail) throw IoException("injected") }
         store.put("key", 1)
 
         fail = true
-        assertThrows(IOException::class.java) { store.put("key", 2) }
+        assertFailsWith<IoException> { store.put("key", 2) }
 
         fail = false
         assertEquals(1, store.get("key")) // シンクは適用前に呼ばれるため巻き戻し不要
@@ -67,7 +67,7 @@ class KvStoreInMemoryTest {
     @Test
     fun unsupportedValueType_isRejectedLikeFileBackedStore() {
         val store = KvStore.openInMemory()
-        assertThrows(IllegalArgumentException::class.java) { store.put("key", 'x') }
+        assertFailsWith<IllegalArgumentException> { store.put("key", 'x') }
     }
 
     @Test

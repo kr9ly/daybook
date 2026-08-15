@@ -1,18 +1,17 @@
 package io.github.kr9ly.daybook.kv
 
+import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.waitUntil
+import io.github.kr9ly.daybook.concurrent.withLock
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.createTempDirectory
 import io.github.kr9ly.daybook.journal.FileSink
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalSink
-import io.github.kr9ly.daybook.journal.open
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * [KvStore.writeBatch] の結合テスト。
@@ -21,31 +20,35 @@ import java.util.concurrent.TimeUnit
  */
 class KvStoreBatchTest {
 
-    @get:Rule
-    val tmp = TemporaryFolder()
+    private val tmp = createTempDirectory()
 
-    private fun openStore(): KvStore = KvStore.open(tmp.root, "store")
+    private fun openStore(): KvStore = KvStore.open(tmp, "store")
 
-    private fun generationFile(root: File = tmp.root, generation: Long = 1): File =
-        File(root, "store.$generation.journal")
+    private fun generationFile(root: FilePath = tmp, generation: Long = 1): FilePath =
+        root.resolve("store.$generation.journal")
 
     /** クローズ済みジャーナルのレコード列を KV 操作として読み戻す。 */
-    private fun journalOperations(root: File = tmp.root): List<KvOperation> =
+    private fun journalOperations(root: FilePath = tmp): List<KvOperation> =
         JournalFile.open(generationFile(root)).use { journal ->
             journal.replayedRecords.map(KvOperationCodec::decode)
         }
 
-    private class RecordingListener(expectedCount: Int) : DaybookChangeListener {
-        val events = mutableListOf<Pair<String, Any?>>()
-        private val latch = CountDownLatch(expectedCount)
+    private class RecordingListener(private val expectedCount: Int) : DaybookChangeListener {
+        private val lock = Lock()
+        private val recorded = mutableListOf<Pair<String, Any?>>()
+
+        val events: List<Pair<String, Any?>>
+            get() = lock.withLock { recorded.toList() }
 
         override fun onChange(key: String, newValue: Any?) {
-            synchronized(events) { events.add(key to newValue) }
-            latch.countDown()
+            lock.withLock { recorded.add(key to newValue) }
         }
 
         fun awaitAll() {
-            assertTrue("listener did not receive expected events", latch.await(5, TimeUnit.SECONDS))
+            assertTrue(
+                waitUntil { lock.withLock { recorded.size } >= expectedCount },
+                "listener did not receive expected events",
+            )
         }
     }
 
@@ -106,7 +109,7 @@ class KvStoreBatchTest {
     @Test
     fun writeBatch_rejectsUnsupportedValueWithoutJournaling() {
         openStore().use { store ->
-            assertThrows(IllegalArgumentException::class.java) {
+            assertFailsWith<IllegalArgumentException> {
                 store.writeBatch(
                     listOf(
                         KvOperation.Put("ok", 1),
@@ -219,7 +222,7 @@ class KvStoreBatchTest {
         val total = afterBase + 4 + batchPayload.size + 4
 
         for (limit in 0..total) {
-            val dir = tmp.newFolder("crash-$limit")
+            val dir = tmp.resolve("crash-$limit")
             KvStore.open(
                 directory = dir,
                 name = "store",
@@ -238,7 +241,7 @@ class KvStoreBatchTest {
 
                     else -> emptyMap()
                 }
-                assertEquals("persistLimit=$limit", expected, store.getAll())
+                assertEquals(expected, store.getAll(), "persistLimit=$limit")
             }
         }
     }

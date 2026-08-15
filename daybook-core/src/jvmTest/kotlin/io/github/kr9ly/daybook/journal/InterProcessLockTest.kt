@@ -1,13 +1,13 @@
 package io.github.kr9ly.daybook.journal
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.createTempDirectory
+import io.github.kr9ly.daybook.io.fileExists
 import java.nio.channels.ClosedChannelException
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * FileInterProcessLock の JVM で検証できる範囲のテスト。
@@ -18,10 +18,9 @@ import java.nio.channels.ClosedChannelException
  */
 class InterProcessLockTest {
 
-    @get:Rule
-    val tmp = TemporaryFolder()
+    private val tmp = createTempDirectory()
 
-    private fun lockFile(): File = File(tmp.root, "store.lock")
+    private fun lockFile(): FilePath = tmp.resolve("store.lock")
 
     @Test
     fun withLock_returnsBodyResult() {
@@ -34,7 +33,7 @@ class InterProcessLockTest {
     fun withLock_createsLockFileIfMissing() {
         FileInterProcessLock(lockFile()).use { lock ->
             lock.withLock {}
-            assertTrue(lockFile().exists())
+            assertTrue(fileExists(lockFile()))
         }
     }
 
@@ -50,7 +49,7 @@ class InterProcessLockTest {
     @Test
     fun withLock_releasesOnException() {
         FileInterProcessLock(lockFile()).use { lock ->
-            assertThrows(IllegalStateException::class.java) {
+            assertFailsWith<IllegalStateException> {
                 lock.withLock { throw IllegalStateException("boom") }
             }
             lock.withLock {} // 例外後も取得できる = 解放済み
@@ -72,7 +71,7 @@ class InterProcessLockTest {
     fun close_preventsFurtherLocking() {
         val lock = FileInterProcessLock(lockFile())
         lock.close()
-        assertThrows(ClosedChannelException::class.java) {
+        assertFailsWith<ClosedChannelException> {
             lock.withLock {}
         }
     }

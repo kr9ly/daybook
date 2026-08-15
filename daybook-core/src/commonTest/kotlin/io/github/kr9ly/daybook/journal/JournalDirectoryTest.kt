@@ -1,24 +1,26 @@
 package io.github.kr9ly.daybook.journal
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
-import java.io.IOException
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.IoException
+import io.github.kr9ly.daybook.io.createTempDirectory
+import io.github.kr9ly.daybook.io.fileExists
+import io.github.kr9ly.daybook.io.listDirectory
+import io.github.kr9ly.daybook.io.writeFileBytes
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class JournalDirectoryTest {
 
-    @get:Rule
-    val tmp = TemporaryFolder()
+    private val tmp = createTempDirectory()
 
-    private fun directory() = JournalDirectory(tmp.root, "store")
+    private fun directory() = JournalDirectory(tmp, "store")
 
-    private fun createFile(name: String): File =
-        File(tmp.root, name).also { it.writeBytes(byteArrayOf(1)) }
+    private fun createFile(name: String): FilePath =
+        tmp.resolve(name).also { writeFileBytes(it, byteArrayOf(1)) }
 
     @Test
     fun emptyDirectory_startsAtFirstGeneration() {
@@ -27,12 +29,12 @@ class JournalDirectoryTest {
 
     @Test
     fun missingDirectory_isCreated() {
-        val nested = File(tmp.root, "nested/dir")
+        val nested = tmp.resolve("nested/dir")
         assertEquals(
             JournalDirectory.FIRST_GENERATION,
             JournalDirectory(nested, "store").resolveCurrentGeneration(),
         )
-        assertTrue(nested.isDirectory)
+        assertNotNull(listDirectory(nested)) // ディレクトリとして列挙できる
     }
 
     @Test
@@ -46,7 +48,7 @@ class JournalDirectoryTest {
             "store.1.journal.bak", // サフィックス不一致
         ).map { createFile(it) }
         assertEquals(JournalDirectory.FIRST_GENERATION, directory().resolveCurrentGeneration())
-        unrelated.forEach { assertTrue("${it.name} should survive", it.exists()) }
+        unrelated.forEach { assertTrue(fileExists(it), "${it.name} should survive") }
     }
 
     @Test
@@ -55,12 +57,12 @@ class JournalDirectoryTest {
         val gen3 = createFile("store.3.journal")
         val temp = createFile("store.2.journal.tmp")
         assertEquals(3L, directory().resolveCurrentGeneration())
-        assertFalse(temp.exists())
+        assertFalse(fileExists(temp))
         // 旧世代の削除は resolve の責務ではない（最新世代のオープン成功後に呼び出し側が行う）
-        assertTrue(gen1.exists())
+        assertTrue(fileExists(gen1))
         directory().deleteOlderThan(3L)
-        assertFalse(gen1.exists())
-        assertTrue(gen3.exists())
+        assertFalse(fileExists(gen1))
+        assertTrue(fileExists(gen3))
     }
 
     @Test
@@ -68,14 +70,14 @@ class JournalDirectoryTest {
         createFile("store.2.journal.tmp")
         createFile("store.5.journal.tmp")
         assertEquals(5L, directory().resolveCurrentGeneration())
-        assertTrue(File(tmp.root, "store.5.journal").exists())
-        assertFalse(File(tmp.root, "store.5.journal.tmp").exists())
-        assertFalse(File(tmp.root, "store.2.journal.tmp").exists())
+        assertTrue(fileExists(tmp.resolve("store.5.journal")))
+        assertFalse(fileExists(tmp.resolve("store.5.journal.tmp")))
+        assertFalse(fileExists(tmp.resolve("store.2.journal.tmp")))
     }
 
     @Test
     fun commitWithoutTemp_throws() {
-        assertThrows(IOException::class.java) {
+        assertFailsWith<IoException> {
             directory().commit(1L)
         }
     }
@@ -83,7 +85,7 @@ class JournalDirectoryTest {
     @Test
     fun pathThatIsNotADirectory_throws() {
         val file = createFile("regular-file")
-        assertThrows(IOException::class.java) {
+        assertFailsWith<IoException> {
             JournalDirectory(file, "store").resolveCurrentGeneration()
         }
     }

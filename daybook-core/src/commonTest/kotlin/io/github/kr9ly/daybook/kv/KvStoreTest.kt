@@ -1,42 +1,49 @@
 package io.github.kr9ly.daybook.kv
 
+import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.waitUntil
+import io.github.kr9ly.daybook.concurrent.withLock
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.appendFileBytes
+import io.github.kr9ly.daybook.io.createTempDirectory
+import io.github.kr9ly.daybook.io.fileExists
+import io.github.kr9ly.daybook.io.writeFileBytes
 import io.github.kr9ly.daybook.journal.JournalFile
 import io.github.kr9ly.daybook.journal.JournalFormatException
-import io.github.kr9ly.daybook.journal.open
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import kotlin.concurrent.Volatile
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class KvStoreTest {
 
-    @get:Rule
-    val tmp = TemporaryFolder()
+    private val tmp = createTempDirectory()
 
-    private fun openStore(): KvStore = KvStore.open(tmp.root, "store")
+    private fun openStore(): KvStore = KvStore.open(tmp, "store")
 
-    private fun generationFile(generation: Long = 1): File =
-        File(tmp.root, "store.$generation.journal")
+    private fun generationFile(generation: Long = 1): FilePath =
+        tmp.resolve("store.$generation.journal")
 
     /** 変更イベントを記録し、期待件数まで待てるリスナー。 */
-    private class RecordingListener(expectedCount: Int) : DaybookChangeListener {
-        val events = mutableListOf<Pair<String, Any?>>()
-        private val latch = CountDownLatch(expectedCount)
+    private class RecordingListener(private val expectedCount: Int) : DaybookChangeListener {
+        private val lock = Lock()
+        private val recorded = mutableListOf<Pair<String, Any?>>()
+
+        val events: List<Pair<String, Any?>>
+            get() = lock.withLock { recorded.toList() }
 
         override fun onChange(key: String, newValue: Any?) {
-            synchronized(events) { events.add(key to newValue) }
-            latch.countDown()
+            lock.withLock { recorded.add(key to newValue) }
         }
 
         fun awaitAll() {
-            assertTrue("listener did not receive expected events", latch.await(5, TimeUnit.SECONDS))
+            assertTrue(
+                waitUntil { lock.withLock { recorded.size } >= expectedCount },
+                "listener did not receive expected events",
+            )
         }
     }
 
@@ -63,10 +70,10 @@ class KvStoreTest {
 
     @Test
     fun openWithDefaultName_usesDaybookFiles() {
-        KvStore.open(tmp.root).use { store ->
+        KvStore.open(tmp).use { store ->
             store.put("key", 1)
         }
-        assertTrue(File(tmp.root, "daybook.1.journal").exists())
+        assertTrue(fileExists(tmp.resolve("daybook.1.journal")))
     }
 
     @Test
@@ -88,7 +95,7 @@ class KvStoreTest {
     @Test
     fun putUnsupportedType_isRejectedWithoutJournaling() {
         openStore().use { store ->
-            assertThrows(IllegalArgumentException::class.java) {
+            assertFailsWith<IllegalArgumentException> {
                 store.put("key", 'x') // Char は非対応
             }
         }
@@ -185,7 +192,7 @@ class KvStoreTest {
             store.put("key", "value")
         }
         // 追記途中のクラッシュを模して中途半端なバイトを足す
-        generationFile().appendBytes(byteArrayOf(0, 0, 0, 5, 1, 2))
+        appendFileBytes(generationFile(), byteArrayOf(0, 0, 0, 5, 1, 2))
         openStore().use { store ->
             assertTrue(store.recoveredFromCorruption)
             assertEquals("value", store.get("key"))
@@ -194,8 +201,8 @@ class KvStoreTest {
 
     @Test
     fun openNonJournalFile_throwsFormatException() {
-        generationFile().writeBytes("not a journal".toByteArray())
-        assertThrows(JournalFormatException::class.java) {
+        writeFileBytes(generationFile(), "not a journal".encodeToByteArray())
+        assertFailsWith<JournalFormatException> {
             openStore()
         }
     }
@@ -206,7 +213,7 @@ class KvStoreTest {
         JournalFile.open(generationFile()).use { journal ->
             journal.append(byteArrayOf(99))
         }
-        assertThrows(KvEncodingException::class.java) {
+        assertFailsWith<KvEncodingException> {
             openStore()
         }
     }
@@ -321,18 +328,23 @@ class KvStoreTest {
         }
     }
 
+    private class Flag {
+        @Volatile
+        var raised = false
+    }
+
     @Test
     fun listener_canWriteBackToStoreWithoutDeadlock() {
         openStore().use { store ->
-            val done = CountDownLatch(1)
+            val done = Flag()
             store.addListener { key, _ ->
                 if (key == "trigger") {
                     store.put("echo", "reentrant")
-                    done.countDown()
+                    done.raised = true
                 }
             }
             store.put("trigger", 1)
-            assertTrue(done.await(5, TimeUnit.SECONDS))
+            assertTrue(waitUntil { done.raised })
             assertEquals("reentrant", store.get("echo"))
         }
     }

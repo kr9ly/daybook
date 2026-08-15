@@ -1,7 +1,7 @@
 package io.github.kr9ly.daybook.journal
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /**
  * [InMemoryJournal] のテスト。

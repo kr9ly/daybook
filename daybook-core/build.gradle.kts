@@ -64,12 +64,6 @@ kotlin {
                 implementation(kotlin("test"))
             }
         }
-        jvmTest {
-            dependencies {
-                // 1.x 由来の JVM テストは JUnit4（TemporaryFolder ルール等）で書かれている
-                implementation(libs.junit)
-            }
-        }
     }
 }
 

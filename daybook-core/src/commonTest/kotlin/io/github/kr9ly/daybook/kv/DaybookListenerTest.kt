@@ -1,16 +1,16 @@
 package io.github.kr9ly.daybook.kv
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.util.Collections
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.waitUntil
+import io.github.kr9ly.daybook.concurrent.withLock
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * [Daybook] のリスナー配送テスト。
  *
- * 配送は専用スレッドで非同期のため、待ち合わせ（CountDownLatch）が要る jvmTest に置く。
+ * 配送は専用スレッドで非同期のため、待ち合わせ（waitUntil ポーリング）が要る。
  * 配送順序・操作ベース通知の本体はエンジン側（KvStoreTest 等）で検証済みで、
  * ここでは顔の登録・解除がエンジンに素通しされることを確認する。
  */
@@ -18,18 +18,17 @@ class DaybookListenerTest {
 
     private object PlainSchema : DaybookSchema("test")
 
-    private class Events(expectedCount: Int) {
-        private val list = Collections.synchronizedList(mutableListOf<Pair<String, Any?>>())
-        private val latch = CountDownLatch(expectedCount)
+    private class Events(private val expectedCount: Int) {
+        private val lock = Lock()
+        private val list = mutableListOf<Pair<String, Any?>>()
 
         val listener = DaybookChangeListener { key, newValue ->
-            list.add(key to newValue)
-            latch.countDown()
+            lock.withLock { list.add(key to newValue) }
         }
 
         fun await(): List<Pair<String, Any?>> {
-            assertTrue(latch.await(5, TimeUnit.SECONDS))
-            return list.toList()
+            assertTrue(waitUntil { lock.withLock { list.size } >= expectedCount })
+            return lock.withLock { list.toList() }
         }
     }
 

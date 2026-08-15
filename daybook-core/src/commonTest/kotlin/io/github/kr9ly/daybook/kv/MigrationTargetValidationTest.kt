@@ -1,10 +1,9 @@
 package io.github.kr9ly.daybook.kv
 
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import io.github.kr9ly.daybook.io.createTempDirectory
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
@@ -14,10 +13,7 @@ import kotlin.test.assertFailsWith
  */
 class MigrationTargetValidationTest {
 
-    @get:Rule
-    val folder = TemporaryFolder()
-
-    @After
+    @AfterTest
     fun tearDown() {
         DaybookRegistry.resetForTesting()
     }
@@ -41,7 +37,7 @@ class MigrationTargetValidationTest {
 
     @Test
     fun targetsOfOwnSchema_areAccepted() {
-        val daybook = Daybook.open(folder.root.path, Schema) {
+        val daybook = Daybook.open(createTempDirectory().path, Schema) {
             migrations = listOf(FakeTypedSource(listOf(Schema.own), mapOf("own" to "migrated")))
         }
         assertEquals("migrated", daybook.getString("own", null))
@@ -50,7 +46,7 @@ class MigrationTargetValidationTest {
     @Test
     fun targetsOfAnotherSchema_areRejectedAtOpen() {
         assertFailsWith<IllegalArgumentException> {
-            Daybook.open(folder.root.path, Schema) {
+            Daybook.open(createTempDirectory().path, Schema) {
                 migrations = listOf(FakeTypedSource(listOf(OtherSchema.foreign)))
             }
         }
@@ -65,7 +61,7 @@ class MigrationTargetValidationTest {
                 throw MigrationException("source data is broken")
         }
         assertFailsWith<MigrationException> {
-            Daybook.open(folder.root.path, Schema) { migrations = listOf(failing) }
+            Daybook.open(createTempDirectory().path, Schema) { migrations = listOf(failing) }
         }
     }
 }
