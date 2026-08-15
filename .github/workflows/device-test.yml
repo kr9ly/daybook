@@ -1,8 +1,8 @@
 name: device-test
 
-# Android エミュレータでの instrumented テスト（androidTest 15 件 = 通常 13 + キル系 2）。
-# 実機回帰を手元エミュレータから GHA に載せ替える裁定（2026-08-15、KMP-2.0.md）の実施。
-# iOS シミュレータ側の検証は test.yml の ios-simulator-test が全量を回している。
+# 環境依存レーン: Android エミュレータの instrumented テスト（androidTest 15 件 = 通常 13 + キル系 2）と
+# iOS シミュレータテスト。実機回帰を手元エミュレータから GHA に載せ替える裁定（2026-08-15、KMP-2.0.md）の実施。
+# 速い決定的レーン（lint + JVM ユニットテスト）は test.yml。
 
 on:
   push:
@@ -16,11 +16,12 @@ permissions:
   contents: read
 
 jobs:
-  # エミュレータ job は起動込みで遅いため、関連パスの変更時だけ走らせる
+  # エミュレータ / シミュレータ job は遅い・高コストのため、関連パスの変更時だけ走らせる
   changes:
     runs-on: ubuntu-latest
     outputs:
       android: ${{ steps.filter.outputs.android }}
+      ios: ${{ steps.filter.outputs.ios }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +37,13 @@ jobs:
           filters: |
             android:
               - 'daybook/**'
+              - 'daybook-core/**'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle.properties'
+              - 'gradle/**'
+              - '.github/workflows/device-test.yml'
+            ios:
               - 'daybook-core/**'
               - 'build.gradle.kts'
               - 'settings.gradle.kts'
@@ -108,3 +116,38 @@ jobs:
         with:
           name: android-emulator-test-reports
           path: daybook/build/reports/androidTests/
+
+  # iOS の保証はシミュレータ検証まで（KMP-2.0.md 裁定 2026-08-15）。
+  # Apple 向けコンパイルは macOS ホストでしかできないため、このジョブが iOS レーンの唯一の検証点。
+  # iosArm64（実機向け）はコンパイルまで、テスト実行は iosSimulatorArm64 のシミュレータで行う
+  ios-simulator-test:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Kotlin/Native のツールチェーンと platform klib は ~/.konan に落ちる（数百 MB）ので
+      # Kotlin バージョン単位でキャッシュする
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Compile iosArm64 and run simulator tests
+        run: ./gradlew :daybook-core:compileKotlinIosArm64 :daybook-core:iosSimulatorArm64Test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-test-reports
+          path: daybook-core/build/reports/tests/
