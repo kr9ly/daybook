@@ -40,8 +40,14 @@ class Daybook1xJournalMigrationTest {
     private fun markerFile(name: String = "daybook", id: String = "daybook-1x"): File =
         File(folder.root, "$name.$id.migrated")
 
+    // 名前ごとにスキーマを固定する（同名の再オープンはスキーマ同一性検査があるため）
+    private val schemas = HashMap<String, DaybookSchema>()
+
+    private fun schemaFor(name: String): DaybookSchema =
+        schemas.getOrPut(name) { object : DaybookSchema(name) {} }
+
     private fun openWith1xMigration(name: String = "daybook"): Daybook =
-        Daybook.open(dir(), name) { migrations = listOf(MigrationSource.daybook1xJournal()) }
+        Daybook.open(dir(), schemaFor(name)) { migrations = listOf(MigrationSource.daybook1xJournal()) }
 
     // --- 取り込みの基本 ---
 
@@ -203,7 +209,7 @@ class Daybook1xJournalMigrationTest {
 
     @Test
     fun existing2xStore_marksDoneWithoutTouchingData() {
-        Daybook.open(dir()).edit { putString("key", "v2-data") }
+        Daybook.open(dir(), schemaFor("daybook")).edit { putString("key", "v2-data") }
         DaybookRegistry.resetForTesting()
 
         val daybook = openWith1xMigration()
@@ -231,7 +237,7 @@ class Daybook1xJournalMigrationTest {
             .record(V1JournalWriter.put("shared", "from-1x"))
             .record(V1JournalWriter.put("only-1x", "kept"))
             .writeTo(setAsideFile())
-        Daybook.open(dir()).edit {
+        Daybook.open(dir(), schemaFor("daybook")).edit {
             putString("shared", "from-2x")
             putString("only-2x", "kept")
         }
@@ -316,7 +322,7 @@ class Daybook1xJournalMigrationTest {
     }
 
     private fun openWith(vararg sources: MigrationSource): Daybook =
-        Daybook.open(dir()) { migrations = sources.toList() }
+        Daybook.open(dir(), schemaFor("daybook")) { migrations = sources.toList() }
 
     @Test
     fun nullRead_isRetriedOnNextStoreCreation() {
@@ -344,7 +350,7 @@ class Daybook1xJournalMigrationTest {
 
     @Test
     fun cacheHit_ignoresMigrations() {
-        Daybook.open(dir())
+        Daybook.open(dir(), schemaFor("daybook"))
         val source = FakeSource(results = mutableListOf(mapOf("key" to "ignored")))
 
         assertNull(openWith(source).getString("key", null))

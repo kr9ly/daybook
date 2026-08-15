@@ -147,10 +147,15 @@ daybook の 6 型は SharedPreferences 互換（String/StringSet/Int/Long/Float/
 - 1.x で無条件の不変条件だった SharedPreferences 往復可能性は、2.0 では「既定で守られるオプション」に位置づけを変える。Android SharedPreferences ↔ daybook 1.x ↔ daybook 2.0 という互換チェーンの維持は設計制約としない（裁定 2026-08-03）
 - StringSet 側も対称に扱う: Settings の顔から StringSet キーにアクセスしたときの挙動（不可視 / エラー / エンコードして可視化）を同じポリシー軸に載せる
 
-## マイグレーションスキーマ（構想 2026-08-14）
+## マイグレーションスキーマ（裁定 2026-08-15、構想 2026-08-14 を改訂）
 
 iOS / Android で別々に実装されたアプリを KMP に移行するシナリオでは、両 OS のネイティブストアのスキーマ（キー名・型）が食い違っているのが普通で、
 写像の定義者は利用者以外にあり得ない。よって 2.0 の移行支援は自動 import ではなく、明示的なマイグレーションスキーマ定義 + 冪等実行エンジンとして提供する。
+
+構想からの中心的な転回（裁定 2026-08-15）: マイグレーションは常にデバイスローカル（Android 端末は SharedPreferences から、iOS 端末は NSUserDefaults から取り込む）であり、
+クロスプラットフォームの写像を 1 箇所に書く「common の統一スキーマ」には消費者が存在しない。
+よって common に置くのは MigrationSource 契約 + 冪等実行エンジン（実装済み）+ モードとストア宣言だけとし、写像の宣言はプラットフォームローカルに置く。
+これで統一スキーマの複雑さの本体だった型語彙の調停（NSNumber の型曖昧性 vs SharedPreferences の実型、StringSet は Android のみ等）が丸ごと消える。
 
 前提となる調査結果（2026-08-14）:
 
@@ -159,13 +164,22 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
 - NSUserDefaults の dictionaryRepresentation は NSGlobalDomain 等システム由来のキーが混入するため、1.x 流の「全キー暗黙 import」は iOS では成立しない。明示列挙が唯一の安全な形
 - KMP エコシステムにネイティブストア → KMP ストアの移行支援のデファクトは存在しない（ラッパー方式が主流でマイグレーション問題自体が発生しないため）。先例として最も近いのは DataStore の SharedPreferencesMigration（初回オープン時の一度きり取り込み）
 
-最小形の軸:
+宣言レイヤーの裁定（2026-08-15）:
 
-- 宣言単位: daybook 側のキーごとに、プラットフォーム別のソース（元キー + 期待型）を書く。ソース指定には suiteName（iOS）/ SharedPreferences ファイル名（Android）の軸を含める
-- 型不一致・欠損時の挙動: 裁定済みの「顔ごとの型互換性ポリシー」と同じ軸に載せる（fail-fast 既定、スキップ等の緩和は opt-in）
-- 実行: 初回オープン時の冪等 import。1.x のサイドカーマーカー方式を流用。iOS では prewarming（初回アンロック前に NSUserDefaults が空を返す）への「ソースが読める状態か」の判定ガードが追加で必要
-- 値変換（transform 関数）は初版のスコープに含めない。キー写像 + 型期待に絞る
-- Android の「全キー暗黙 import」（1.x の形）は写像が恒等な特殊ケースとして同じ API に位置づけ直し、移行 API を 1 本に統一する
+- 宣言の頂点はストア宣言 DaybookSchema（common）。ストア名とキー一式を 1 箇所に固定し、スキーマ内ファクトリでキーを宣言する。同一スキーマ内のキー名重複は宣言時に即例外
+- open は Daybook.open(directory, schema) に変更し、文字列 name の open は廃止する。Android の Context.openDaybook / TestDaybook.getDaybook も同型（テストと本番で宣言が完全共有になる）
+- DaybookKey は所属スキーマへの参照 + キー名 + 格納型を持つ。利用側は daybook.property(key, default) に一本化し、文字列ファクトリ（Daybook.boolean("key", default) 等）は廃止する
+- ストア束縛はランタイム検査（案 a）: property() 生成時に「この Daybook のスキーマとキーの所属スキーマが同一オブジェクトか」を即例外で検査する。ファントム型のコンパイル時束縛（案 b: Daybook<Schema>）は Daybook を受ける全 API（coroutines / test / アダプタ）へ型パラメータが波及するため不採用。誤使用は移行テストやプロパティ宣言の初回実行で決定的に露見するので検出時期の実差が小さい
+- SharedPreferences 顔（1.x 凍結・文字列 name）が先にストアを生成した場合、レジストリのエントリはスキーマ未設定で生まれる。最初のスキーマ open がエントリにスキーマを採用させ、以後の別スキーマでの open は即例外（両顔統合を壊さない唯一の形）
+- ソースの単位は「1 ソース = 1 ストアへの移行宣言全体」。複数ファイルからの集約はソース内の file()（Android）/ suite()（iOS）ブロックで宣言し、read() は全ファイル分を 1 つの Map に集約して返す（1 バッチ・1 マーカーのアトミック性を維持）。ファイルごとに別ソースへ分割する案は不採用 — マーカーが分裂してクラッシュ時に部分取り込みが観測され、iOS の prewarming 再試行の時期もファイルごとにずれる
+- ソースキーは型付き宣言: ソースファイル定数（SharedPreferencesFile / UserDefaultsSuite）から SourceKey を生やし、migrate(source, into = target) のシグネチャで元キーの期待型と宛先の格納型の不一致をコンパイルエラーにする。SourceKey 型は各ソース専有とし形だけ揃える（欠損の扱い・型判定の意味論がプラットフォームごとに違うため共有しない）
+- 写像は同型のみ（Float→Double の拡張含め不可）。値変換（transform）は初版のスコープに含めない（裁定 2026-08-14 維持）を型検査でそのまま強制する
+- モードは 2 つ: MigrationMode.STRICT（既定・移行検証用 — ソースデータの型不一致・非対応型で例外が open から伝播）/ MigrationMode.LENIENT（本番用 — 問題エントリだけスキップして残りを取り込み、マーカーを作って完走）。LENIENT のスキップはソース宣言の onSkipped コールバック（省略時は何もしない）で観測できる
+- エラーの二分類: 宣言の矛盾（同一 target への重複写像・同一ソースキーの重複・importAllKeys と明示エントリの衝突）はプログラマのバグとしてモード非依存で常に即例外。ソースデータの問題だけがモードの対象。元キーの欠損は両モードとも正常系スキップ（未設定は合法状態）
+- マーカーは LENIENT で完走した場合も作られる = スキップされたエントリは後で STRICT にしても再取り込みされない。移行検証を STRICT で先に行う運用が前提
+- Android の「全キー暗黙 import」（1.x の形）は importAllKeys(file) として同じソース宣言内に同居する（写像が恒等な特殊ケース、裁定 2026-08-14 維持）
+- 実行: 初回オープン時の冪等 import。1.x のサイドカーマーカー方式を流用。iOS では prewarming（初回アンロック前に NSUserDefaults が空を返す）への「ソースが読める状態か」の判定ガード（null 返し → 次回再試行）を使う。判定は宣言された全 suite に対して 1 回で行い、部分読みしない
+- 移行の妥当性検査の補助として、スキーマ付きの open では migrations の宛先キーが開こうとしているスキーマに属するかも検査する（型付きビルダー製のソースが対象。任意実装の MigrationSource には課さない）
 
 ## モジュール構成（設計 2026-08-14）
 
@@ -193,8 +207,8 @@ iOS / Android で別々に実装されたアプリを KMP に移行するシナ�
 
 マイグレーション基盤の配置（:daybook-migration の別出しはしない）:
 
-- commonMain（core）: MigrationSource インターフェース + マイグレーションスキーマ定義 + 冪等実行エンジン
-- core の iosMain: NSUserDefaultsMigrationSource（suiteName 指定・prewarming ガード込み）
+- commonMain（core）: MigrationSource インターフェース + 冪等実行エンジン + MigrationMode + DaybookSchema / DaybookKey（写像宣言そのものは置かない — 上記裁定 2026-08-15）
+- core の appleMain: NSUserDefaultsMigrationSource（suite() 複数宣言・prewarming ガード込み。iOS 専用ではなく Apple 全ターゲット共通）
 - :daybook（Android アダプタ）: SharedPreferencesMigrationSource。Context が要るので core の androidMain ではなくこちらに置き、1.x の相互マイグレーション実装と同居させる
 
 パッケージ名（裁定 2026-08-14: `.core` は付けず 1.x パッケージを引き継ぐ）:

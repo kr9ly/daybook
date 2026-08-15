@@ -16,7 +16,9 @@ import kotlin.test.assertTrue
  */
 class DaybookTest {
 
-    private fun open(): Daybook = KvStore.openInMemory().asDaybook()
+    private object PlainSchema : DaybookSchema("test")
+
+    private fun open(): Daybook = KvStore.openInMemory().asDaybook(PlainSchema)
 
     // --- getter の契約 ---
 

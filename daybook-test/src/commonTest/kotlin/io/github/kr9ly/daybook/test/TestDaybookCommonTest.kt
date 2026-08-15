@@ -2,7 +2,8 @@ package io.github.kr9ly.daybook.test
 
 import io.github.kr9ly.daybook.io.IoException
 import io.github.kr9ly.daybook.kv.DaybookChangeListener
-import io.github.kr9ly.daybook.kv.string
+import io.github.kr9ly.daybook.kv.DaybookSchema
+import io.github.kr9ly.daybook.kv.property
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -13,51 +14,60 @@ import kotlin.test.assertTrue
 /** common の [TestDaybook]（Daybook の顔）の契約テスト。 */
 class TestDaybookCommonTest {
 
+    private object StoreSchema : DaybookSchema("store") {
+        val name = string("name")
+    }
+
+    private object SchemaA : DaybookSchema("a")
+    private object SchemaB : DaybookSchema("b")
+
     // --- インスタンス管理 ---
 
     @Test
     fun sameName_returnsSameInstance() {
         val world = TestDaybook()
-        assertSame(world.getDaybook("store"), world.getDaybook("store"))
+        assertSame(world.getDaybook(StoreSchema), world.getDaybook(StoreSchema))
     }
 
     @Test
     fun differentNames_areIsolated() {
         val world = TestDaybook()
-        world.getDaybook("a").edit { putInt("key", 1) }
-        assertFalse(world.getDaybook("b").contains("key"))
+        world.getDaybook(SchemaA).edit { putInt("key", 1) }
+        assertFalse(world.getDaybook(SchemaB).contains("key"))
     }
 
     @Test
     fun instances_areIsolatedWorlds() {
         val first = TestDaybook()
         val second = TestDaybook()
-        first.getDaybook("store").edit { putInt("key", 1) }
-        assertFalse(second.getDaybook("store").contains("key"))
+        first.getDaybook(StoreSchema).edit { putInt("key", 1) }
+        assertFalse(second.getDaybook(StoreSchema).contains("key"))
     }
 
     @Test
-    fun defaultDaybook_usesPackageNameConvention() {
-        val world = TestDaybook(packageName = "com.example")
-        world.getDefaultDaybook().edit { putInt("key", 1) }
-        assertEquals(1, world.getDaybook("com.example_preferences").getInt("key", 0))
+    fun sameName_differentSchemaObject_throws() {
+        val world = TestDaybook()
+        val another = object : DaybookSchema("store") {}
+        world.getDaybook(StoreSchema)
+        assertFailsWith<IllegalArgumentException> {
+            world.getDaybook(another)
+        }
     }
 
     @Test
     fun multiProcessMismatch_throws() {
         val world = TestDaybook()
-        world.getDaybook("store", multiProcess = false)
+        world.getDaybook(StoreSchema, multiProcess = false)
         assertFailsWith<IllegalArgumentException> {
-            world.getDaybook("store", multiProcess = true)
+            world.getDaybook(StoreSchema, multiProcess = true)
         }
     }
 
     @Test
     fun invalidNames_throw() {
         val world = TestDaybook()
-        assertFailsWith<IllegalArgumentException> { world.getDaybook("") }
-        assertFailsWith<IllegalArgumentException> { world.getDaybook("a/b") }
         assertFailsWith<IllegalArgumentException> { world.commits("") }
+        assertFailsWith<IllegalArgumentException> { world.commits("a/b") }
     }
 
     // --- 同期配送 ---
@@ -65,7 +75,7 @@ class TestDaybookCommonTest {
     @Test
     fun listenerNotifications_areSynchronous() {
         val world = TestDaybook()
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         val events = mutableListOf<Pair<String, Any?>>()
         daybook.addChangeListener(DaybookChangeListener { key, newValue -> events += key to newValue })
         daybook.edit {
@@ -79,7 +89,7 @@ class TestDaybookCommonTest {
     @Test
     fun propertyDelegate_worksOnTestDaybook() {
         val world = TestDaybook()
-        var name by world.getDaybook("store").string("name", default = "unset")
+        var name by world.getDaybook(StoreSchema).property(StoreSchema.name, default = "unset")
         assertEquals("unset", name)
         name = "value"
         assertEquals("value", name)
@@ -90,7 +100,7 @@ class TestDaybookCommonTest {
     @Test
     fun commits_recordOneEntryPerBatchInWriteOrder() {
         val world = TestDaybook()
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         daybook.edit { putInt("a", 1) }
         daybook.edit {
             clear()
@@ -109,7 +119,7 @@ class TestDaybookCommonTest {
     @Test
     fun commits_areSnapshots() {
         val world = TestDaybook()
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         daybook.edit { putInt("a", 1) }
         val snapshot = world.commits("store")
         daybook.edit { putInt("b", 2) }
@@ -126,7 +136,7 @@ class TestDaybookCommonTest {
     @Test
     fun emptyEdit_isNotRecorded() {
         val world = TestDaybook()
-        world.getDaybook("store").edit {}
+        world.getDaybook(StoreSchema).edit {}
         assertEquals(emptyList(), world.commits("store"))
     }
 
@@ -135,7 +145,7 @@ class TestDaybookCommonTest {
     @Test
     fun failNextWrite_failsOnceThenRecovers() {
         val world = TestDaybook()
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         val events = mutableListOf<String>()
         daybook.addChangeListener(DaybookChangeListener { key, _ -> events += key })
 
@@ -157,7 +167,7 @@ class TestDaybookCommonTest {
     fun failNextWrite_beforeFirstAccess_appliesToFirstWrite() {
         val world = TestDaybook()
         world.failNextWrite("store")
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         assertFailsWith<IoException> {
             daybook.edit { putInt("key", 1) }
         }
@@ -168,7 +178,7 @@ class TestDaybookCommonTest {
         val world = TestDaybook()
         world.failNextWrite("store")
         world.failNextWrite("store")
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         assertFailsWith<IoException> {
             daybook.edit { putInt("key", 1) }
         }

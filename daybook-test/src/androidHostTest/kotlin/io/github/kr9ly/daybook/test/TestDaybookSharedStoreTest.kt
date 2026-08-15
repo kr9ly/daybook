@@ -2,6 +2,7 @@ package io.github.kr9ly.daybook.test
 
 import android.content.SharedPreferences
 import io.github.kr9ly.daybook.kv.DaybookChangeListener
+import io.github.kr9ly.daybook.kv.DaybookSchema
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -12,11 +13,13 @@ import org.junit.Test
  */
 class TestDaybookSharedStoreTest {
 
+    private object StoreSchema : DaybookSchema("store")
+
     @Test
     fun writesThroughEitherFace_areVisibleFromTheOther() {
         val world = TestDaybook()
         val prefs = world.getSharedPreferences("store")
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
 
         prefs.edit().putString("from-prefs", "value").commit()
         assertEquals("value", daybook.getString("from-prefs", null))
@@ -28,7 +31,7 @@ class TestDaybookSharedStoreTest {
     @Test
     fun multiProcessFlag_isSharedAcrossFaces() {
         val world = TestDaybook()
-        world.getDaybook("store", multiProcess = false)
+        world.getDaybook(StoreSchema, multiProcess = false)
         assertThrows(IllegalArgumentException::class.java) {
             world.getSharedPreferences("store", multiProcess = true)
         }
@@ -38,7 +41,7 @@ class TestDaybookSharedStoreTest {
     fun commits_recordWritesFromBothFaces() {
         val world = TestDaybook()
         world.getSharedPreferences("store").edit().putString("a", "1").commit()
-        world.getDaybook("store").edit { putInt("b", 2) }
+        world.getDaybook(StoreSchema).edit { putInt("b", 2) }
         assertEquals(
             listOf(
                 RecordedCommit(clearRequested = false, changes = mapOf("a" to "1")),
@@ -51,7 +54,7 @@ class TestDaybookSharedStoreTest {
     @Test
     fun daybookListeners_seeWritesFromBothFaces() {
         val world = TestDaybook()
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         val events = mutableListOf<Pair<String, Any?>>()
         daybook.addChangeListener(DaybookChangeListener { key, newValue -> events += key to newValue })
 
@@ -64,7 +67,7 @@ class TestDaybookSharedStoreTest {
     fun prefsListeners_seeOnlyPrefsFaceWrites() {
         val world = TestDaybook()
         val prefs = world.getSharedPreferences("store")
-        val daybook = world.getDaybook("store")
+        val daybook = world.getDaybook(StoreSchema)
         val delivered = mutableListOf<String?>()
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> delivered += key }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -80,7 +83,7 @@ class TestDaybookSharedStoreTest {
         val prefs = world.getSharedPreferences("store")
         world.failNextWrite("store")
         assertEquals(false, prefs.edit().putInt("key", 1).commit())
-        world.getDaybook("store").edit { putInt("key", 2) }
+        world.getDaybook(StoreSchema).edit { putInt("key", 2) }
         assertEquals(2, prefs.getInt("key", 0))
     }
 }

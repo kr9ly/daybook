@@ -4,6 +4,7 @@ import io.github.kr9ly.daybook.concurrent.Lock
 import io.github.kr9ly.daybook.concurrent.withLock
 import io.github.kr9ly.daybook.io.IoException
 import io.github.kr9ly.daybook.kv.Daybook
+import io.github.kr9ly.daybook.kv.DaybookSchema
 import io.github.kr9ly.daybook.kv.KvOperation
 import io.github.kr9ly.daybook.kv.KvStore
 import io.github.kr9ly.daybook.kv.asDaybook
@@ -16,10 +17,11 @@ import io.github.kr9ly.daybook.kv.asDaybook
  * 注入して生成する。Daybook の顔は common で組み立て、プラットフォーム固有の顔
  * （Android の SharedPreferences）は [secondaryFace] 経由で actual 側が同じストアにかぶせる。
  */
-internal class TestDaybookState(private val packageName: String) {
+internal class TestDaybookState {
 
     private class Entry {
         var store: KvStore? = null
+        var schema: DaybookSchema? = null
         var daybook: Daybook? = null
         var secondaryFace: Any? = null
         var multiProcess: Boolean? = null
@@ -30,13 +32,20 @@ internal class TestDaybookState(private val packageName: String) {
     private val lock = Lock()
     private val entries = HashMap<String, Entry>()
 
-    fun defaultName(): String = "${packageName}_preferences"
-
-    fun getDaybook(name: String, multiProcess: Boolean): Daybook {
+    fun getDaybook(schema: DaybookSchema, multiProcess: Boolean): Daybook {
         lock.withLock {
-            val entry = entryFor(name, multiProcess)
+            val entry = entryFor(schema.storeName, multiProcess)
+            val adopted = entry.schema
+            if (adopted == null) {
+                entry.schema = schema
+            } else {
+                require(adopted === schema) {
+                    "\"${schema.storeName}\" is already open with another schema object; " +
+                        "the same store must always be opened with the same schema object"
+                }
+            }
             entry.daybook?.let { return it }
-            val daybook = storeFor(entry).asDaybook()
+            val daybook = storeFor(entry).asDaybook(schema)
             entry.daybook = daybook
             return daybook
         }

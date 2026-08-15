@@ -1,6 +1,7 @@
 package io.github.kr9ly.daybook.test
 
 import io.github.kr9ly.daybook.kv.Daybook
+import io.github.kr9ly.daybook.kv.DaybookSchema
 
 /**
  * アプリのユニットテスト向けの in-memory な daybook 世界。素の JVM で動く。
@@ -21,32 +22,31 @@ import io.github.kr9ly.daybook.kv.Daybook
  * `TestDaybook` は 1 つずつが隔離された世界: テスト（またはテストクラス）ごとに生成して
  * 使い捨てる — インスタンスはスレッドを起動せず、ファイルもネイティブリソースも持たない
  * ため、close も、グローバル状態も、覚えておくべき reset もない。1 インスタンスの中では
- * 本番の契約が守られる: 同じ [name] は同じオブジェクトを返し、同じ名前を異なる
- * `multiProcess` フラグで開き直すと [IllegalArgumentException]（フラグは顔をまたいで
- * 検査される）。in-memory ではすべてが 1 プロセスなので、このフラグにそれ以外の効果はない。
+ * 本番の契約が守られる: 同じスキーマ（同じストア名）は同じオブジェクトを返し、同じ名前を
+ * 異なる `multiProcess` フラグや別のスキーマオブジェクトで開き直すと
+ * [IllegalArgumentException]（フラグとスキーマは顔をまたいで検査される）。in-memory では
+ * すべてが 1 プロセスなので、このフラグにそれ以外の効果はない。
  *
- * @param packageName [getDefaultDaybook]（と Android の getDefaultSharedPreferences）が
- *   デフォルトストア名（`<packageName>_preferences`）の導出に使うパッケージ名。本番 API のミラー。
+ * @param packageName Android の getDefaultSharedPreferences ミラーがデフォルト prefs 名
+ *   （`<packageName>_preferences`）の導出に使うパッケージ名。本番 API のミラー。
  */
 public expect class TestDaybook(packageName: String = "test") {
 
     /**
-     * [name] の in-memory [Daybook] を返す。初回アクセス時に生成する。
+     * [schema] が宣言する in-memory [Daybook] を返す。初回アクセス時に生成する。
      *
-     * 同名の呼び出しは同一インスタンスを返すため、ある参照経由で登録したリスナーには
-     * 別の参照経由の編集も届く — 本番と同じ。
+     * ストア名は [schema] の宣言から取られる — 本番の [io.github.kr9ly.daybook.kv.Daybook.Companion.open]
+     * と同じスキーマ宣言を共有できる。同じスキーマの呼び出しは同一インスタンスを返すため、
+     * ある参照経由で登録したリスナーには別の参照経由の編集も届く — 本番と同じ。
+     * 同じ名前を別のスキーマオブジェクトで開き直すと IllegalArgumentException（本番と同じ
+     * 同一性検査）。Android で同じ名前に SharedPreferences の顔が先に生成されていた場合も、
+     * 最初のスキーマ付き取得がそのストアにスキーマを採用させる — 本番のレジストリと同型。
      *
-     * @param name ストア名。空文字と `/` を含む名前は不可。
+     * @param schema ストア宣言。
      * @param multiProcess 本番 API とのシグネチャ対称性のために受け付ける。呼び出し間の
      *   整合性チェックは行われるが、in-memory では挙動を何も変えない。
      */
-    public fun getDaybook(name: String, multiProcess: Boolean = false): Daybook
-
-    /**
-     * デフォルト名（`<packageName>_preferences`）の in-memory [Daybook] を返す。
-     * デフォルトストアを開く本番 API のミラー。
-     */
-    public fun getDefaultDaybook(multiProcess: Boolean = false): Daybook
+    public fun getDaybook(schema: DaybookSchema, multiProcess: Boolean = false): Daybook
 
     /**
      * [name] に対してこれまでに記録された commit を古い順で返す。

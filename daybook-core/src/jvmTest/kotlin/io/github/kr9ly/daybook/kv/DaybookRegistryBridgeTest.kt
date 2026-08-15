@@ -34,6 +34,8 @@ class DaybookRegistryBridgeTest {
 
     private fun dir(): String = folder.root.path
 
+    private object StoreSchema : DaybookSchema("store")
+
     /** watch 呼び出しを記録するだけの watcher（検知はしない）。 */
     private class RecordingWatcherFactory : JournalWatcherFactory {
         var watchCount = 0
@@ -60,7 +62,7 @@ class DaybookRegistryBridgeTest {
         val watcher = RecordingWatcherFactory()
         DaybookRegistry.openDaybook(
             dir(),
-            "store",
+            StoreSchema,
             configure = { multiProcess = true },
             watcherFactory = watcher,
             directorySync = platformDirectorySync(),
@@ -73,7 +75,7 @@ class DaybookRegistryBridgeTest {
         val watcher = RecordingWatcherFactory()
         DaybookRegistry.openDaybook(
             dir(),
-            "store",
+            StoreSchema,
             configure = {},
             watcherFactory = watcher,
             directorySync = platformDirectorySync(),
@@ -85,12 +87,12 @@ class DaybookRegistryBridgeTest {
     fun openDaybook_sharesInstanceWithPlainOpen() {
         val injected = DaybookRegistry.openDaybook(
             dir(),
-            "store",
+            StoreSchema,
             configure = {},
             watcherFactory = RecordingWatcherFactory(),
             directorySync = platformDirectorySync(),
         )
-        assertSame(injected, Daybook.open(dir(), "store"))
+        assertSame(injected, Daybook.open(dir(), StoreSchema))
     }
 
     @Test
@@ -98,7 +100,7 @@ class DaybookRegistryBridgeTest {
         val sync = RecordingDirectorySync()
         DaybookRegistry.openDaybook(
             dir(),
-            "store",
+            StoreSchema,
             configure = { durability = Durability.SYNC },
             watcherFactory = RecordingWatcherFactory(),
             directorySync = sync,
@@ -120,7 +122,7 @@ class DaybookRegistryBridgeTest {
             directorySync = platformDirectorySync(),
             onCreate = {},
         )
-        val daybook = Daybook.open(dir(), "store")
+        val daybook = Daybook.open(dir(), StoreSchema)
         store.put("from-store", "value")
         assertEquals("value", daybook.getString("from-store", null))
         daybook.edit { putString("from-daybook", "value") }
@@ -146,7 +148,7 @@ class DaybookRegistryBridgeTest {
 
     @Test
     fun getOrOpenStore_onCreateSkippedWhenDaybookFaceCreatedFirst() {
-        Daybook.open(dir(), "store")
+        Daybook.open(dir(), StoreSchema)
         var created = 0
         DaybookRegistry.getOrOpenStore(
             dir(),
@@ -187,7 +189,7 @@ class DaybookRegistryBridgeTest {
 
     @Test
     fun getOrOpenStore_durabilityMismatchWithSyncDaybookThrows() {
-        Daybook.open(dir(), "store") { durability = Durability.SYNC }
+        Daybook.open(dir(), StoreSchema) { durability = Durability.SYNC }
         assertFailsWith<IllegalArgumentException> {
             DaybookRegistry.getOrOpenStore(
                 dir(),
@@ -200,11 +202,34 @@ class DaybookRegistryBridgeTest {
         }
     }
 
+    // --- スキーマの採用（SharedPreferences 顔が先行するケース） ---
+
+    /** 顔なしで生成されたストアに、最初のスキーマ付き open がスキーマを採用させる。 */
+    @Test
+    fun schemaAdoption_prefsFaceFirstThenSchemaOpenSharesStore() {
+        val store = DaybookRegistry.getOrOpenStore(
+            dir(),
+            "store",
+            multiProcess = false,
+            watcherFactory = RecordingWatcherFactory(),
+            directorySync = platformDirectorySync(),
+            onCreate = {},
+        )
+        val daybook = Daybook.open(dir(), StoreSchema)
+        store.put("key", "value")
+        assertEquals("value", daybook.getString("key", null))
+        // 採用後は別スキーマでの open が同一性検査に落ちる
+        val another = object : DaybookSchema("store") {}
+        assertFailsWith<IllegalArgumentException> {
+            Daybook.open(dir(), another)
+        }
+    }
+
     // --- withStore ---
 
     @Test
     fun withStore_usesCachedStoreWhenOpen() {
-        val daybook = Daybook.open(dir(), "store")
+        val daybook = Daybook.open(dir(), StoreSchema)
         DaybookRegistry.withStore(dir(), "store", platformDirectorySync()) { store ->
             store.put("key", "value")
         }
@@ -218,7 +243,7 @@ class DaybookRegistryBridgeTest {
         }
         // 一時ストアは閉じられている（キャッシュに残っていれば同じインスタンスが返り、
         // 閉じ忘れならこのオープンが多重オープンになる）
-        assertEquals("value", Daybook.open(dir(), "store").getString("key", null))
+        assertEquals("value", Daybook.open(dir(), StoreSchema).getString("key", null))
     }
 
     @Test
@@ -242,6 +267,6 @@ class DaybookRegistryBridgeTest {
             }.isSuccess,
         )
         // body の失敗でも一時ストアは閉じられている
-        Daybook.open(dir(), "store")
+        Daybook.open(dir(), StoreSchema)
     }
 }

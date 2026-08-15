@@ -4,19 +4,23 @@ import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
 /**
- * [Daybook] の型付きエントリ 1 つ — キー名・値型・デフォルトを宣言 1 箇所に固定し、
- * キー文字列も default 引数も呼び出し側で繰り返させない。
+ * [Daybook] の型付きエントリ 1 つ — スキーマで宣言したキー（[DaybookKey]）にデフォルトを
+ * 与えて読み書き可能にしたもの。キー名・値型の出所は [DaybookSchema] の宣言 1 箇所に固定される。
  *
- * ファクトリ拡張（[boolean], [int], [long], [float], [double], [string], [stringSet]）で
- * 生成し、2 通りに使える:
+ * [property] で生成し、2 通りに使える:
  *
  * ```kotlin
- * class Settings(daybook: Daybook) {
+ * object Settings : DaybookSchema("settings") {
+ *     val darkMode = boolean("dark_mode")
+ *     val fontScale = double("font_scale")
+ * }
+ *
+ * class AppSettings(daybook: Daybook) {
  *     // プロパティデリゲートとして
- *     var darkMode by daybook.boolean("dark_mode", default = false)
+ *     var darkMode by daybook.property(Settings.darkMode, default = false)
  *
  *     // プロパティオブジェクト自体も欲しいとき（asFlow() 等）は値として受ける
- *     val fontScalePref = daybook.double("font_scale", default = 1.0)
+ *     val fontScalePref = daybook.property(Settings.fontScale, default = 1.0)
  *     var fontScale by fontScalePref
  * }
  * ```
@@ -108,53 +112,37 @@ public class DaybookProperty<T> internal constructor(
         )
 }
 
-/** [key] の型付き boolean エントリ。不在なら [default]。 */
-public fun Daybook.boolean(key: String, default: Boolean): DaybookProperty<Boolean> =
-    DaybookProperty(this, key, { it.getBoolean(key, default) }, { e, v -> e.putBoolean(key, v) })
-
-/** [key] の型付き int エントリ。不在なら [default]。 */
-public fun Daybook.int(key: String, default: Int): DaybookProperty<Int> =
-    DaybookProperty(this, key, { it.getInt(key, default) }, { e, v -> e.putInt(key, v) })
-
-/** [key] の型付き long エントリ。不在なら [default]。 */
-public fun Daybook.long(key: String, default: Long): DaybookProperty<Long> =
-    DaybookProperty(this, key, { it.getLong(key, default) }, { e, v -> e.putLong(key, v) })
-
-/** [key] の型付き float エントリ。不在なら [default]。 */
-public fun Daybook.float(key: String, default: Float): DaybookProperty<Float> =
-    DaybookProperty(this, key, { it.getFloat(key, default) }, { e, v -> e.putFloat(key, v) })
-
-/** [key] の型付き double エントリ。不在なら [default]。 */
-public fun Daybook.double(key: String, default: Double): DaybookProperty<Double> =
-    DaybookProperty(this, key, { it.getDouble(key, default) }, { e, v -> e.putDouble(key, v) })
-
-/** [key] の型付き string エントリ。不在なら [default]。 */
-public fun Daybook.string(key: String, default: String): DaybookProperty<String> =
-    DaybookProperty(this, key, { it.getString(key, null) ?: default }, { e, v -> e.putString(key, v) })
-
-/** [key] の nullable string エントリ: 不在は `null`、`null` の代入はキーの削除。 */
-public fun Daybook.string(key: String): DaybookProperty<String?> =
-    DaybookProperty(this, key, { it.getString(key, null) }, { e, v -> e.putString(key, v) })
-
 /**
- * [key] の型付き string-set エントリ。不在なら [default]。
+ * [key] の型付きプロパティ。不在なら [default]。
  *
- * [default] は宣言時にコピーされるため、呼び出し側が渡した Set を後から変更しても
- * 不在キーの読み出し結果は変わらない。
+ * [key] はこのストアのスキーマで宣言されたものであること: 別のスキーマのキーを渡すと
+ * IllegalArgumentException（ストア束縛のランタイム検査。誤ったストアを静かに読み書き
+ * しないための fail-fast）。
+ *
+ * string-set の [default] は生成時にコピーされるため、呼び出し側が渡した Set を後から
+ * 変更しても不在キーの読み出し結果は変わらない。
  */
-public fun Daybook.stringSet(
-    key: String,
-    default: Set<String>,
-): DaybookProperty<Set<String>> {
-    val fixedDefault = default.toSet()
-    return DaybookProperty(
-        this,
-        key,
-        { it.getStringSet(key, null) ?: fixedDefault },
-        { e, v -> e.putStringSet(key, v) },
-    )
+public fun <T : Any> Daybook.property(key: DaybookKey<T>, default: T): DaybookProperty<T> {
+    checkSchema(key)
+    val fixedDefault = key.fixDefault(default)
+    return DaybookProperty(this, key.name, { key.readWithDefault(it, fixedDefault) }, key.write)
 }
 
-/** [key] の nullable string-set エントリ: 不在は `null`、`null` の代入はキーの削除。 */
-public fun Daybook.stringSet(key: String): DaybookProperty<Set<String>?> =
-    DaybookProperty(this, key, { it.getStringSet(key, null) }, { e, v -> e.putStringSet(key, v) })
+/** [key] の nullable string プロパティ: 不在は `null`、`null` の代入はキーの削除。スキーマ検査は default 付きの [property] と同じ。 */
+public fun Daybook.property(key: StringKey): DaybookProperty<String?> {
+    checkSchema(key)
+    return DaybookProperty(this, key.name, key::readOrNull, key::writeNullable)
+}
+
+/** [key] の nullable string-set プロパティ: 不在は `null`、`null` の代入はキーの削除。スキーマ検査は default 付きの [property] と同じ。 */
+public fun Daybook.property(key: StringSetKey): DaybookProperty<Set<String>?> {
+    checkSchema(key)
+    return DaybookProperty(this, key.name, key::readOrNull, key::writeNullable)
+}
+
+private fun Daybook.checkSchema(key: DaybookKey<*>) {
+    require(key.schema === schema) {
+        "key \"${key.name}\" belongs to schema \"${key.schema.storeName}\" but this store was " +
+            "opened with schema \"${schema.storeName}\"; keys can only be used with their own schema"
+    }
+}

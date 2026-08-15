@@ -34,6 +34,12 @@ public fun interface DaybookChangeListener {
  */
 public interface Daybook {
 
+    /**
+     * このストアを開いたスキーマ。[property] のストア束縛検査（キーの所属スキーマとの
+     * 同一性）に使われる。
+     */
+    public val schema: DaybookSchema
+
     /** [key] の文字列値。不在なら [default]。 */
     public fun getString(key: String, default: String?): String?
 
@@ -83,16 +89,22 @@ public interface Daybook {
     public companion object {
 
         /**
-         * [directory] 配下の [name] ストアを開いて返す。
+         * [directory] 配下の、[schema] が宣言するストアを開いて返す。
          *
-         * ジャーナルは `<directory>/<name>.<世代番号>.journal` として保存される。
+         * ストア名は [schema] の宣言（[DaybookSchema.name]）から取られ、ジャーナルは
+         * `<directory>/<name>.<世代番号>.journal` として保存される。
          * 初回呼び出しでジャーナルのリプレイ（ファイル IO）が走り、以後の読み出しは
          * すべてインメモリキャッシュへの同期アクセスになる。
          *
-         * 同一プロセス内では同じ (directory, name) に常に同一インスタンスを返す。
+         * 同一プロセス内では同じ (directory, ストア名) に常に同一インスタンスを返す。
          * directory は絶対パスに正規化して同定される（シンボリックリンクは解決しないため、
          * 同じ実体を指す別経路のパスは別ストア扱いになる）。ストアはプロセス寿命で close は
          * 不要（SharedPreferences と同じライフサイクル観）。
+         *
+         * スキーマの同一性はオブジェクト同一性で検査される: 同じストアを別のスキーマ
+         * オブジェクトで開き直すと IllegalArgumentException。Android の SharedPreferences 顔
+         * （文字列 name）が先に同名のストアを生成していた場合、最初のスキーマ付き open が
+         * そのストアにスキーマを採用させ、以後は同じ検査に載る。
          *
          * [configure] のオプションはインスタンス生成時（プロセス内で最初の open）にだけ
          * 使われる。同じストアの再取得でオプションが一致しない場合は IllegalArgumentException。
@@ -113,14 +125,14 @@ public interface Daybook {
          * ディスク IO の失敗は IOException として伝播する。
          *
          * @param directory ストアの置き場所のディレクトリパス。存在しなければ作られる。
-         * @param name ストア名。空文字と `/` を含む名前は不可。
-         * @throws IllegalArgumentException [name] が不正な場合、または同じストアが異なるオプションで既に開かれている場合。
+         * @param schema ストア宣言。ストア名と型付きキー一式をここから取る。
+         * @throws IllegalArgumentException 同じストアが異なるオプションまたは別のスキーマで既に開かれている場合。
          */
         public fun open(
             directory: String,
-            name: String = "daybook",
+            schema: DaybookSchema,
             configure: DaybookOpenOptions.() -> Unit = {},
-        ): Daybook = DaybookRegistry.getOrOpen(directory, name, DaybookOpenOptions().apply(configure))
+        ): Daybook = DaybookRegistry.getOrOpen(directory, schema, DaybookOpenOptions().apply(configure))
     }
 }
 

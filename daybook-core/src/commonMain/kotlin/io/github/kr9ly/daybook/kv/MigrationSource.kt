@@ -64,6 +64,20 @@ public interface MigrationSource {
 }
 
 /**
+ * 宛先キーを [DaybookKey] で宣言する型付きマイグレーションソースが実装する追加契約。
+ *
+ * スキーマ付きの open は、この契約を実装するソースの [targets] が開こうとしているスキーマに
+ * 属するかを検査する（属さないキーへの取り込みは宣言ミスとして即例外）。任意実装の
+ * [MigrationSource] には課されない。
+ */
+@io.github.kr9ly.daybook.internal.DaybookInternalApi
+public interface SchemaTargetedMigrationSource : MigrationSource {
+
+    /** このソースが書き込む宛先キーの一覧。 */
+    public val targets: List<DaybookKey<*>>
+}
+
+/**
  * [MigrationSource.read] に渡される、取り込み先ストアの位置情報。
  *
  * @property directory ストアのディレクトリ（絶対・正規化済みパス）。

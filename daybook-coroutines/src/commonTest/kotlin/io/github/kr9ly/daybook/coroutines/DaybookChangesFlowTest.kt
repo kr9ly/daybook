@@ -1,6 +1,7 @@
 package io.github.kr9ly.daybook.coroutines
 
 import io.github.kr9ly.daybook.kv.Daybook
+import io.github.kr9ly.daybook.kv.DaybookSchema
 import io.github.kr9ly.daybook.kv.KvStore
 import io.github.kr9ly.daybook.kv.asDaybook
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,7 +15,9 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalCoroutinesApi::class)
 class DaybookChangesFlowTest {
 
-    private fun open(): Daybook = KvStore.openInMemory().asDaybook()
+    private object PlainSchema : DaybookSchema("test")
+
+    private fun open(): Daybook = KvStore.openInMemory().asDaybook(PlainSchema)
 
     @Test
     fun emitsOperationKeysInWriteOrder_withoutInitialEmission() = runTest {

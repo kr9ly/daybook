@@ -32,18 +32,23 @@ public object DaybookRegistry {
     private data class Key(val directory: String, val name: String)
 
     private class Entry(
-        val daybook: Daybook,
         val store: KvStore,
         val durability: Durability,
         val multiProcess: Boolean,
-    )
+    ) {
+        /** 最初のスキーマ付き open が採用するスキーマ。SharedPreferences 顔だけの間は null。 */
+        var schema: DaybookSchema? = null
+
+        /** スキーマ採用時に生成される Daybook の顔。 */
+        var daybook: Daybook? = null
+    }
 
     private val lock = Lock()
     private val entries = HashMap<Key, Entry>()
 
     /** [Daybook.open] の入口。watcher と directory fsync はプラットフォーム既定を使う。 */
-    internal fun getOrOpen(directory: String, name: String, options: DaybookOpenOptions): Daybook =
-        getOrOpenEntry(directory, name, options, watcherFactory = null, directorySync = null, onCreate = null).daybook
+    internal fun getOrOpen(directory: String, schema: DaybookSchema, options: DaybookOpenOptions): Daybook =
+        openWithSchema(directory, schema, options, watcherFactory = null, directorySync = null)
 
     /**
      * プラットフォーム実装（watcher / directory fsync）を注入して Daybook の顔を取得する。
@@ -55,18 +60,61 @@ public object DaybookRegistry {
     @DaybookInternalApi
     public fun openDaybook(
         directory: String,
-        name: String,
+        schema: DaybookSchema,
         configure: DaybookOpenOptions.() -> Unit,
         watcherFactory: JournalWatcherFactory,
         directorySync: DirectorySync,
-    ): Daybook = getOrOpenEntry(
-        directory,
-        name,
-        DaybookOpenOptions().apply(configure),
-        watcherFactory,
-        directorySync,
-        onCreate = null,
-    ).daybook
+    ): Daybook = openWithSchema(directory, schema, DaybookOpenOptions().apply(configure), watcherFactory, directorySync)
+
+    /**
+     * スキーマ付き open の共通経路。エントリを取得（なければ生成）した上で、スキーマの
+     * 採用または同一性検査を行い、Daybook の顔を返す。
+     *
+     * スキーマの採用: SharedPreferences 顔（文字列 name、1.x API）が先に同名のストアを
+     * 生成していた場合、エントリはスキーマ未設定で存在する。最初のスキーマ付き open が
+     * スキーマを採用させ、以後の open は同一オブジェクトであることを検査される。
+     */
+    private fun openWithSchema(
+        directory: String,
+        schema: DaybookSchema,
+        options: DaybookOpenOptions,
+        watcherFactory: JournalWatcherFactory?,
+        directorySync: DirectorySync?,
+    ): Daybook {
+        validateMigrationTargets(schema, options.migrations)
+        lock.withLock {
+            val entry =
+                getOrOpenEntry(directory, schema.storeName, options, watcherFactory, directorySync, onCreate = null)
+            val adopted = entry.schema
+            if (adopted == null) {
+                entry.schema = schema
+            } else {
+                require(adopted === schema) {
+                    "\"${schema.storeName}\" is already open with schema ${adopted::class.simpleName}; " +
+                        "the same store must always be opened with the same schema object"
+                }
+            }
+            entry.daybook?.let { return it }
+            val daybook = entry.store.asDaybook(schema)
+            entry.daybook = daybook
+            return daybook
+        }
+    }
+
+    /**
+     * 型付きビルダー製のマイグレーションソース（[SchemaTargetedMigrationSource]）の宛先が、
+     * 開こうとしているスキーマに属するかを検査する。任意実装の [MigrationSource] には課さない。
+     */
+    private fun validateMigrationTargets(schema: DaybookSchema, migrations: List<MigrationSource>) {
+        migrations.filterIsInstance<SchemaTargetedMigrationSource>().forEach { source ->
+            source.targets.forEach { target ->
+                require(target.schema === schema) {
+                    "migration source \"${source.id}\" targets key \"${target.name}\" of schema " +
+                        "\"${target.schema.storeName}\", but the store is being opened with schema \"${schema.storeName}\""
+                }
+            }
+        }
+    }
 
     /**
      * プラットフォーム実装を注入して裏の [KvStore] を取得する。
@@ -184,7 +232,7 @@ public object DaybookRegistry {
                 store.close()
                 throw e
             }
-            val entry = Entry(store.asDaybook(), store, options.durability, options.multiProcess)
+            val entry = Entry(store, options.durability, options.multiProcess)
             entries[key] = entry
             return entry
         }

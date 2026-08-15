@@ -10,18 +10,30 @@ import kotlin.test.assertTrue
 /** [DaybookProperty] の契約テスト。1.x PreferenceProperty と同じ契約を common で検証する。 */
 class DaybookPropertyTest {
 
-    private fun open(): Daybook = KvStore.openInMemory().asDaybook()
+    private object Schema : DaybookSchema("test") {
+        val boolean = boolean("boolean")
+        val int = int("int")
+        val long = long("long")
+        val float = float("float")
+        val double = double("double")
+        val string = string("string")
+        val stringSet = stringSet("string_set")
+        val theme = string("theme")
+        val darkMode = boolean("dark_mode")
+    }
+
+    private fun open(): Daybook = KvStore.openInMemory().asDaybook(Schema)
 
     // --- ファクトリと get/set ---
 
     @Test
     fun primitiveProperties_roundTrip() {
         val daybook = open()
-        val boolean = daybook.boolean("boolean", default = false)
-        val int = daybook.int("int", default = 0)
-        val long = daybook.long("long", default = 0L)
-        val float = daybook.float("float", default = 0f)
-        val double = daybook.double("double", default = 0.0)
+        val boolean = daybook.property(Schema.boolean, default = false)
+        val int = daybook.property(Schema.int, default = 0)
+        val long = daybook.property(Schema.long, default = 0L)
+        val float = daybook.property(Schema.float, default = 0f)
+        val double = daybook.property(Schema.double, default = 0.0)
 
         // 不在は宣言時のデフォルト
         assertFalse(boolean.get())
@@ -46,7 +58,7 @@ class DaybookPropertyTest {
     @Test
     fun stringProperty_withDefault() {
         val daybook = open()
-        val property = daybook.string("key", default = "fallback")
+        val property = daybook.property(Schema.string, default = "fallback")
         assertEquals("fallback", property.get())
         property.set("value")
         assertEquals("value", property.get())
@@ -55,20 +67,20 @@ class DaybookPropertyTest {
     @Test
     fun nullableStringProperty_nullMeansAbsentAndRemoval() {
         val daybook = open()
-        val property = daybook.string("key")
+        val property = daybook.property(Schema.string)
         assertNull(property.get())
         property.set("value")
         assertEquals("value", property.get())
         property.set(null)
         assertNull(property.get())
-        assertFalse(daybook.contains("key"))
+        assertFalse(daybook.contains("string"))
     }
 
     @Test
     fun stringSetProperty_withDefault_copiesDefaultAtDeclaration() {
         val daybook = open()
         val default = mutableSetOf("a")
-        val property = daybook.stringSet("key", default)
+        val property = daybook.property(Schema.stringSet, default)
         default.add("late") // 宣言後の変更はデフォルトに影響しない
         assertEquals(setOf("a"), property.get())
         property.set(setOf("b"))
@@ -78,13 +90,13 @@ class DaybookPropertyTest {
     @Test
     fun nullableStringSetProperty_nullMeansAbsentAndRemoval() {
         val daybook = open()
-        val property = daybook.stringSet("key")
+        val property = daybook.property(Schema.stringSet)
         assertNull(property.get())
         property.set(setOf("a"))
         assertEquals(setOf("a"), property.get())
         property.set(null)
         assertNull(property.get())
-        assertFalse(daybook.contains("key"))
+        assertFalse(daybook.contains("string_set"))
     }
 
     // --- デリゲート ---
@@ -92,7 +104,7 @@ class DaybookPropertyTest {
     @Test
     fun delegate_readsAndWritesThroughProperty() {
         val daybook = open()
-        var darkMode by daybook.boolean("dark_mode", default = false)
+        var darkMode by daybook.property(Schema.darkMode, default = false)
         assertFalse(darkMode)
         darkMode = true
         assertTrue(darkMode)
@@ -106,7 +118,7 @@ class DaybookPropertyTest {
     @Test
     fun map_convertsAtBoundary() {
         val daybook = open()
-        val property = daybook.string("theme", default = Theme.SYSTEM.name)
+        val property = daybook.property(Schema.theme, default = Theme.SYSTEM.name)
             .map(decode = Theme::valueOf, encode = Theme::name)
         assertEquals(Theme.SYSTEM, property.get())
         property.set(Theme.DARK)
@@ -118,7 +130,7 @@ class DaybookPropertyTest {
     fun map_decodeFailurePropagates() {
         val daybook = open()
         daybook.edit { putString("theme", "no-longer-a-theme") }
-        val property = daybook.string("theme", default = Theme.SYSTEM.name)
+        val property = daybook.property(Schema.theme, default = Theme.SYSTEM.name)
             .map(decode = Theme::valueOf, encode = Theme::name)
         assertFailsWith<IllegalArgumentException> {
             property.get()
@@ -129,7 +141,7 @@ class DaybookPropertyTest {
     fun catch_recoversReadFailures() {
         val daybook = open()
         daybook.edit { putString("theme", "no-longer-a-theme") }
-        val property = daybook.string("theme", default = Theme.SYSTEM.name)
+        val property = daybook.property(Schema.theme, default = Theme.SYSTEM.name)
             .map(decode = Theme::valueOf, encode = Theme::name)
             .catch { Theme.SYSTEM }
         assertEquals(Theme.SYSTEM, property.get())
@@ -138,15 +150,15 @@ class DaybookPropertyTest {
     @Test
     fun catch_recoversTypeMismatch() {
         val daybook = open()
-        daybook.edit { putString("key", "not an int") }
-        val property = daybook.int("key", default = 0).catch { -1 }
+        daybook.edit { putString("int", "not an int") }
+        val property = daybook.property(Schema.int, default = 0).catch { -1 }
         assertEquals(-1, property.get())
     }
 
     @Test
     fun catch_doesNotInterceptWrites() {
         val daybook = open()
-        val property = daybook.string("theme", default = Theme.SYSTEM.name)
+        val property = daybook.property(Schema.theme, default = Theme.SYSTEM.name)
             .map(decode = Theme::valueOf, encode = { throw IllegalStateException("encode failure") })
             .catch { Theme.SYSTEM }
         assertFailsWith<IllegalStateException> {
@@ -157,8 +169,35 @@ class DaybookPropertyTest {
     @Test
     fun keyAndStore_areExposed() {
         val daybook = open()
-        val property = daybook.int("key", default = 0)
-        assertEquals("key", property.key)
+        val property = daybook.property(Schema.int, default = 0)
+        assertEquals("int", property.key)
         assertEquals(daybook, property.daybook)
+    }
+
+    // --- ストア束縛のランタイム検査 ---
+
+    private object OtherSchema : DaybookSchema("other") {
+        val flag = boolean("flag")
+        val name = string("name")
+        val tags = stringSet("tags")
+    }
+
+    @Test
+    fun property_rejectsKeyFromAnotherSchema() {
+        val daybook = open()
+        assertFailsWith<IllegalArgumentException> {
+            daybook.property(OtherSchema.flag, default = false)
+        }
+    }
+
+    @Test
+    fun nullableProperties_rejectKeyFromAnotherSchema() {
+        val daybook = open()
+        assertFailsWith<IllegalArgumentException> {
+            daybook.property(OtherSchema.name)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            daybook.property(OtherSchema.tags)
+        }
     }
 }

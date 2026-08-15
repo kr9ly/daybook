@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit
  */
 class DaybookListenerTest {
 
+    private object PlainSchema : DaybookSchema("test")
+
     private class Events(expectedCount: Int) {
         private val list = Collections.synchronizedList(mutableListOf<Pair<String, Any?>>())
         private val latch = CountDownLatch(expectedCount)
@@ -34,7 +36,7 @@ class DaybookListenerTest {
     @Test
     fun listener_receivesBatchInCallOrder() {
         val store = KvStore.openInMemory()
-        val daybook = store.asDaybook()
+        val daybook = store.asDaybook(PlainSchema)
         val events = Events(expectedCount = 3)
         daybook.addChangeListener(events.listener)
         daybook.edit {
@@ -52,7 +54,7 @@ class DaybookListenerTest {
     @Test
     fun removedListener_stopsReceiving() {
         val store = KvStore.openInMemory()
-        val daybook = store.asDaybook()
+        val daybook = store.asDaybook(PlainSchema)
         val removed = Events(expectedCount = 1)
         val kept = Events(expectedCount = 2)
         daybook.addChangeListener(removed.listener)

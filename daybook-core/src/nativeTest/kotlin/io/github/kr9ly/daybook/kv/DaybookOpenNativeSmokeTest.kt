@@ -15,6 +15,10 @@ import kotlin.test.assertTrue
  */
 class DaybookOpenNativeSmokeTest {
 
+    private object SmokeSchema : DaybookSchema("smoke")
+    private object PersistSchema : DaybookSchema("persist")
+    private object SameSchema : DaybookSchema("same")
+
     @AfterTest
     fun resetRegistry() {
         DaybookRegistry.resetForTesting()
@@ -23,7 +27,7 @@ class DaybookOpenNativeSmokeTest {
     @Test
     fun openWriteRead_roundTrip() {
         val dir = createTempDirectory()
-        val daybook = Daybook.open(dir.path, "smoke")
+        val daybook = Daybook.open(dir.path, SmokeSchema)
         daybook.edit {
             putString("string", "value")
             putInt("int", 42)
@@ -40,7 +44,7 @@ class DaybookOpenNativeSmokeTest {
     @Test
     fun reopen_afterRegistryReset_replaysJournalFromDisk() {
         val dir = createTempDirectory()
-        Daybook.open(dir.path, "persist").edit {
+        Daybook.open(dir.path, PersistSchema).edit {
             putString("key", "persisted")
             putLong("long", 1L shl 40)
             putDouble("double", 1.5)
@@ -48,7 +52,7 @@ class DaybookOpenNativeSmokeTest {
 
         DaybookRegistry.resetForTesting()
 
-        val reopened = Daybook.open(dir.path, "persist")
+        val reopened = Daybook.open(dir.path, PersistSchema)
         assertEquals("persisted", reopened.getString("key", null))
         assertEquals(1L shl 40, reopened.getLong("long", 0))
         assertEquals(1.5, reopened.getDouble("double", 0.0))
@@ -57,8 +61,8 @@ class DaybookOpenNativeSmokeTest {
     @Test
     fun open_samePath_returnsSameInstance() {
         val dir = createTempDirectory()
-        val first = Daybook.open(dir.path, "same")
-        val second = Daybook.open("${dir.path}/sub/..", "same")
+        val first = Daybook.open(dir.path, SameSchema)
+        val second = Daybook.open("${dir.path}/sub/..", SameSchema)
         assertSame(first, second)
     }
 }

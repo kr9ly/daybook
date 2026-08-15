@@ -2,6 +2,7 @@ package io.github.kr9ly.daybook
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.kr9ly.daybook.kv.DaybookSchema
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -24,6 +25,8 @@ import java.util.zip.CRC32
  */
 @RunWith(RobolectricTestRunner::class)
 class Upgrade1xTest {
+
+    private object SettingsSchema : DaybookSchema("settings")
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
@@ -72,7 +75,7 @@ class Upgrade1xTest {
     fun openDaybook_migrates1xJournalAutomatically() {
         writeV1Journal("settings", "key" to "from-1x")
 
-        val daybook = context.openDaybook("settings")
+        val daybook = context.openDaybook(SettingsSchema)
 
         assertEquals("from-1x", daybook.getString("key", null))
     }

@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import io.github.kr9ly.daybook.DaybookInternalApi
 import io.github.kr9ly.daybook.DaybookTestBridge
 import io.github.kr9ly.daybook.kv.Daybook
+import io.github.kr9ly.daybook.kv.DaybookSchema
 
 /**
  * Android の actual は共通の顔に加えて [SharedPreferences] の顔（1.x API）を持つ。
@@ -12,13 +13,10 @@ import io.github.kr9ly.daybook.kv.Daybook
  */
 public actual class TestDaybook actual constructor(private val packageName: String) {
 
-    private val state = TestDaybookState(packageName)
+    private val state = TestDaybookState()
 
-    public actual fun getDaybook(name: String, multiProcess: Boolean): Daybook =
-        state.getDaybook(name, multiProcess)
-
-    public actual fun getDefaultDaybook(multiProcess: Boolean): Daybook =
-        state.getDaybook(state.defaultName(), multiProcess)
+    public actual fun getDaybook(schema: DaybookSchema, multiProcess: Boolean): Daybook =
+        state.getDaybook(schema, multiProcess)
 
     public actual fun commits(name: String): List<RecordedCommit> = state.commits(name)
 

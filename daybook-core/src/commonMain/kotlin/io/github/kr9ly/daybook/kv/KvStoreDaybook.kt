@@ -9,7 +9,7 @@ import io.github.kr9ly.daybook.internal.DaybookInternalApi
  * コンテナの構築でエンジンから顔を組み立てるためのブリッジ。
  */
 @DaybookInternalApi
-public fun KvStore.asDaybook(): Daybook = KvStoreDaybook(this)
+public fun KvStore.asDaybook(schema: DaybookSchema): Daybook = KvStoreDaybook(this, schema)
 
 /**
  * [Daybook] の実装。エンジンへの薄い委譲で、独自の状態は持たない。
@@ -17,7 +17,10 @@ public fun KvStore.asDaybook(): Daybook = KvStoreDaybook(this)
  * getter の契約（不在は default・型違いは ClassCastException）はキャッシュ値のキャストで、
  * edit のアトミック性は [KvStore.writeBatch]（1 バッチ = 1 ジャーナルレコード）で実現する。
  */
-internal class KvStoreDaybook(internal val store: KvStore) : Daybook {
+internal class KvStoreDaybook(
+    internal val store: KvStore,
+    override val schema: DaybookSchema,
+) : Daybook {
 
     override fun getString(key: String, default: String?): String? =
         store.get(key) as String? ?: default
