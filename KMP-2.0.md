@@ -217,11 +217,17 @@ expect/actual と素のインターフェースの使い分け:
 2. iOS / Native: コストの本体。App Group コンテナ + ファイルロックで widget / share extension とのデータ共有（NSUserDefaults(suiteName:) の同期の怪しさの代替）という実需に刺さる
 3. JS / WasmJS: ファイルシステム前提のエンジンが成立しないため当面対象外。やるなら別バックエンドになり、セマンティクス同一の看板と衝突する。非ゴール候補
 
-裁定 2026-08-15: iOS / Native の actual 一式は 2.0 リリース前に仮実装として入れる。
-「動作の保証はしないが実装はある」状態を目指す（POSIX actual + kqueue/dispatch source watcher + 並行プリミティブ actual）。
-実機検証・App Group スパイク・正式サポートの宣言は後続とし、リリース時の対応表明では JVM までをサポート済みとする。
+裁定 2026-08-15（改訂・同日）: iOS / Native の actual 一式は 2.0 リリース前に入れ、リリース時の対応表明で iOS もサポート済みとする。
+実装は POSIX actual + kqueue/dispatch source watcher + 並行プリミティブ actual + iosMain の NSUserDefaultsMigrationSource。
 
-仮実装の検証環境（裁定 2026-08-15: Mac 実機は買わず SaaS で解決する）:
+- 当初の裁定（「動作保証はしないが実装はある」・対応表明は JVM まで）を同日改訂し、動作保証まで踏み込む
+- 保証範囲の線引き: iOS のシングルプロセス利用（読み書き・永続化・リスナー・マイグレーション）を動作保証する。
+  multiProcess（App Group 経由の app extension とのストア共有）は「実装はあるが保証なし」に留め、実機検証・App Group スパイクを経てから格上げする。
+  ファイルロックと watcher の実機挙動はシミュレータとの乖離が出やすい領域で、Android の保証水準（実機回帰済み）との整合を保つため
+- 保証の裏付けはシミュレータ検証（GHA macOS ランナーの iosSimulatorArm64Test）まで。iOS 実機・Mac 非購入の裁定は維持する
+  （シミュレータ検証ベースのサポート宣言は KMP ライブラリの一般的な水準。シミュレータは macOS カーネル上で動き POSIX・kqueue の検証としては実がある）
+
+検証環境（裁定 2026-08-15: Mac 実機は買わず SaaS で解決する）:
 
 - linuxX64 ターゲットを検証用に追加する。POSIX actual の大半（ファイル IO・flock・並行プリミティブ）は
   darwin と共通コードか僅差で、手元の WSL の linuxX64Test で開発ループを回せる。
