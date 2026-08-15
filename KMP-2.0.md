@@ -192,6 +192,10 @@ expect/actual と素のインターフェースの使い分け:
 2. iOS / Native: コストの本体。App Group コンテナ + ファイルロックで widget / share extension とのデータ共有（NSUserDefaults(suiteName:) の同期の怪しさの代替）という実需に刺さる
 3. JS / WasmJS: ファイルシステム前提のエンジンが成立しないため当面対象外。やるなら別バックエンドになり、セマンティクス同一の看板と衝突する。非ゴール候補
 
+裁定 2026-08-15: iOS / Native の actual 一式は 2.0 リリース前に仮実装として入れる。
+「動作の保証はしないが実装はある」状態を目指す（POSIX actual + kqueue/dispatch source watcher + 並行プリミティブ actual）。
+実機検証・App Group スパイク・正式サポートの宣言は後続とし、リリース時の対応表明では JVM までをサポート済みとする。
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
