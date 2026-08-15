@@ -5,6 +5,8 @@ import io.github.kr9ly.daybook.concurrent.withLock
 import io.github.kr9ly.daybook.internal.DaybookInternalApi
 import io.github.kr9ly.daybook.io.FilePath
 import io.github.kr9ly.daybook.io.absoluteNormalizedPath
+import io.github.kr9ly.daybook.io.createEmptyFile
+import io.github.kr9ly.daybook.io.fileExists
 import io.github.kr9ly.daybook.journal.DirectorySync
 import io.github.kr9ly.daybook.journal.JournalWatcherFactory
 import io.github.kr9ly.daybook.journal.SyncMode
@@ -84,11 +86,15 @@ public object DaybookRegistry {
         multiProcess: Boolean,
         watcherFactory: JournalWatcherFactory,
         directorySync: DirectorySync,
+        migrations: List<MigrationSource> = emptyList(),
         onCreate: (KvStore) -> Unit,
     ): KvStore = getOrOpenEntry(
         directory,
         name,
-        DaybookOpenOptions().apply { this.multiProcess = multiProcess },
+        DaybookOpenOptions().apply {
+            this.multiProcess = multiProcess
+            this.migrations = migrations
+        },
         watcherFactory,
         directorySync,
         onCreate,
@@ -106,18 +112,21 @@ public object DaybookRegistry {
         directory: String,
         name: String,
         directorySync: DirectorySync,
+        migrations: List<MigrationSource> = emptyList(),
         body: (KvStore) -> T,
     ): T {
         validateName(name)
         val key = Key(absoluteNormalizedPath(directory), name)
         lock.withLock {
             entries[key]?.let { return body(it.store) }
+            val pending = readPendingMigrations(key, migrations)
             val store = KvStore.open(
                 directory = FilePath(key.directory),
                 name = name,
                 directorySync = directorySync,
             )
             return try {
+                applyMigrations(key, store, pending)
                 body(store)
             } finally {
                 store.close()
@@ -147,6 +156,10 @@ public object DaybookRegistry {
                 }
                 return existing
             }
+            // ソースの読み取りはストアを開く前に行う（1.x ジャーナルのように、ソースが
+            // ストアのファイル名前空間を占有している場合に退避できるよう）。適用は
+            // リプレイ後・open が返る前（MigrationSource の KDoc の実行契約）
+            val pendingMigrations = readPendingMigrations(key, options.migrations)
             val store = KvStore.open(
                 directory = FilePath(key.directory),
                 name = name,
@@ -162,19 +175,60 @@ public object DaybookRegistry {
                     null
                 },
             )
-            if (onCreate != null) {
-                try {
-                    onCreate(store)
-                } catch (e: Throwable) {
-                    store.close()
-                    throw e
-                }
+            try {
+                // マイグレーション → onCreate の順（Android の prefs 取り込みは 1.x 由来の
+                // データの上に重なる）。失敗したストアはキャッシュに載せない
+                applyMigrations(key, store, pendingMigrations)
+                onCreate?.invoke(store)
+            } catch (e: Throwable) {
+                store.close()
+                throw e
             }
             val entry = Entry(store.asDaybook(), store, options.durability, options.multiProcess)
             entries[key] = entry
             return entry
         }
     }
+
+    /**
+     * マーカーのないソースの読み取りを、ストアを開く前に実行する。
+     * 読み取り結果が null のソース（まだ読める状態にない）は今回スキップし、マーカーも
+     * 作らない（次のストア生成時に再試行される）。同じ id の重複は最初の 1 つだけを使う。
+     */
+    private fun readPendingMigrations(
+        key: Key,
+        sources: List<MigrationSource>,
+    ): List<Pair<MigrationSource, Map<String, Any>>> = sources
+        .distinctBy { it.id }
+        .filterNot { source ->
+            require(source.id.isNotEmpty() && !source.id.contains('/')) {
+                "migration source id must be non-empty and must not contain '/': \"${source.id}\""
+            }
+            fileExists(markerFile(key, source.id))
+        }
+        .mapNotNull { source ->
+            source.read(MigrationEnvironment(key.directory, key.name))?.let { source to it }
+        }
+
+    /**
+     * 読み取り済みの値をアトミックな 1 バッチとしてストアへ書き、ソースごとのマーカーを作る。
+     * マーカー作成前のクラッシュは次回の再取り込みで回復する（[MigrationSource] の KDoc）。
+     */
+    private fun applyMigrations(
+        key: Key,
+        store: KvStore,
+        pending: List<Pair<MigrationSource, Map<String, Any>>>,
+    ) {
+        pending.forEach { (source, values) ->
+            if (values.isNotEmpty()) {
+                store.writeBatch(values.map { (k, v) -> KvOperation.Put(k, v) })
+            }
+            createEmptyFile(markerFile(key, source.id))
+        }
+    }
+
+    private fun markerFile(key: Key, id: String): FilePath =
+        FilePath(key.directory).resolve("${key.name}.$id.migrated")
 
     private fun validateName(name: String) {
         require(name.isNotEmpty()) { "name must not be empty" }

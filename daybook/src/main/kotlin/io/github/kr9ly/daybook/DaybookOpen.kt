@@ -6,6 +6,7 @@ import io.github.kr9ly.daybook.journal.defaultDirectorySync
 import io.github.kr9ly.daybook.kv.Daybook
 import io.github.kr9ly.daybook.kv.DaybookOpenOptions
 import io.github.kr9ly.daybook.kv.DaybookRegistry
+import io.github.kr9ly.daybook.kv.MigrationSource
 
 /**
  * [name] の daybook ストアを共通 API の [Daybook] として開いて返す。
@@ -30,6 +31,10 @@ import io.github.kr9ly.daybook.kv.DaybookRegistry
  * 素の [Daybook.open] が先に生成していた場合は、WatchService 結線のまま同一インスタンスが
  * 返る。Android では常にこの拡張（または SharedPreferences 顔の Context 拡張）を使うこと。
  *
+ * daybook 1.x からのアップグレード: 1.x のジャーナルが残っている場合、ストアの初回生成時に
+ * データを一度だけ引き継ぐ（[io.github.kr9ly.daybook.kv.MigrationSource.Companion.daybook1xJournal]
+ * を自動で含める。SharedPreferences 顔と共通の冪等マーカーで一度きり）。
+ *
  * @param name ストア名。空文字と `/` を含む名前は不可。省略時は `<packageName>_preferences`。
  * @param configure ストア生成時のオプション。[DaybookOpenOptions] を参照。
  * @throws IllegalArgumentException [name] が不正な場合、または同じストアが異なるオプションで既に開かれている場合。
@@ -40,7 +45,12 @@ public fun Context.openDaybook(
 ): Daybook = DaybookRegistry.openDaybook(
     directory = DaybookPreferencesCache.daybookDir(applicationContext).path,
     name = name,
-    configure = configure,
+    configure = {
+        configure()
+        // 1.x からのアップグレード導線を Android の入口では常に含める（冪等・一度きり。
+        // 同じ id の重複はレジストリ側で除かれるため、利用者の明示指定とも共存する）
+        migrations = migrations + MigrationSource.daybook1xJournal()
+    },
     watcherFactory = FileObserverJournalWatcherFactory(),
     directorySync = defaultDirectorySync(),
 )

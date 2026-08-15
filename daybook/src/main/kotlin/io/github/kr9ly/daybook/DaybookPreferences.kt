@@ -6,6 +6,7 @@ import io.github.kr9ly.daybook.journal.FileObserverJournalWatcherFactory
 import io.github.kr9ly.daybook.journal.defaultDirectorySync
 import io.github.kr9ly.daybook.kv.DaybookRegistry
 import io.github.kr9ly.daybook.kv.KvStore
+import io.github.kr9ly.daybook.kv.MigrationSource
 import io.github.kr9ly.daybook.prefs.DaybookSharedPreferences
 import java.io.File
 
@@ -62,6 +63,10 @@ public class DaybookOptions(
  * 取り込みが走るのは裏のストアが生成されたときだけで、キャッシュヒット時（同じ [name] を
  * [openDaybook] が先に開いていた場合を含む）にフラグの効果はない。multiProcess フラグとの対比に注意: multiProcess は全呼び出しで一致必須・
  * 不一致は例外だが、import フラグは生成時の挙動だけを表し、以後は黙って無視される。
+ *
+ * daybook 1.x からのアップグレード: 1.x のジャーナルが残っている場合、ストアの初回生成時に
+ * データを一度だけ自動で引き継ぐ（フラグ不要・冪等マーカーで一度きり）。1.x の prefs 取り込みは
+ * 引き継いだデータの上に重なるため、1.x 時点の取り込みマーカーもそのまま尊重される。
  *
  * @param name prefs 名。空文字と `/` を含む名前は不可。
  * @param options ストアのオプション。デフォルトはシングルプロセス・取り込みなし。
@@ -123,6 +128,9 @@ internal object DaybookPreferencesCache {
                 multiProcess = multiProcess,
                 watcherFactory = FileObserverJournalWatcherFactory(),
                 directorySync = defaultDirectorySync(),
+                // 1.x からのアップグレード導線: この顔の利用者は 1.x のジャーナルを
+                // 持っている前提なので、1.x データの引き継ぎを常に含める（冪等・一度きり）
+                migrations = listOf(MigrationSource.daybook1xJournal()),
                 onCreate = { created ->
                     // 取り込みはストアの生成時のみ。生成後に走らせると生成以降の編集を
                     // 上書きしうるため、キャッシュヒット時（Context.openDaybook が先に
@@ -145,7 +153,15 @@ internal object DaybookPreferencesCache {
      * 直列化はレジストリのロックが担う（[DaybookRegistry.withStore] を参照）。
      */
     fun <T> withStore(context: Context, name: String, body: (KvStore) -> T): T =
-        DaybookRegistry.withStore(daybookDir(context).path, name, defaultDirectorySync(), body)
+        DaybookRegistry.withStore(
+            daybookDir(context).path,
+            name,
+            defaultDirectorySync(),
+            // 一時オープンでも 1.x データの引き継ぎを通す（getOrCreate と同じ導線。
+            // 引き継ぎはジャーナルに書かれるため一時ストアを閉じても残る）
+            migrations = listOf(MigrationSource.daybook1xJournal()),
+            body,
+        )
 
     /**
      * テスト専用: 顔のキャッシュを空にし、レジストリごとリセットする（プロセス再起動の模倣）。

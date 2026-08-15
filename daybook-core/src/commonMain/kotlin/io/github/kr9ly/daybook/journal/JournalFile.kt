@@ -39,6 +39,12 @@ internal class JournalFormatException(message: String) : IoException(message)
  * crc32 は length + payload に掛ける（長さフィールドの破損も検出する）。
  * 整数はすべてビッグエンディアン。
  *
+ * バージョンポリシー: version 2 が 2.x 系のフォーマットで、互換性保証は 2.x 系内のみ
+ * （前方互換を壊すときはメジャーバージョンで、KMP-2.0.md の裁定 2026-08-03）。
+ * version 1 は 1.x のフォーマット（payload に Double 型タグを持たない）で、エンジンは
+ * 未知フォーマットとして拒否する。1.x データの引き継ぎは
+ * [io.github.kr9ly.daybook.kv.MigrationSource] の 1.x ジャーナルソースが担う。
+ *
  * オープン時に全レコードをリプレイし、CRC 不一致・長さ不整合を見つけたら
  * そのレコード以降（壊れたテール）を切り捨てて最後の正常状態に復旧する。
  */
@@ -110,7 +116,7 @@ internal class JournalFile private constructor(
 
     companion object {
         private val MAGIC = byteArrayOf(0x44, 0x42, 0x4B, 0x4A) // "DBKJ"
-        private const val VERSION = 1
+        private const val VERSION = 2
         private const val HEADER_SIZE = 8
         private const val LENGTH_SIZE = 4
         private const val CRC_SIZE = 4

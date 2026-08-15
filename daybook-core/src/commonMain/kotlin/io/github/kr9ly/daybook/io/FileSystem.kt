@@ -11,6 +11,12 @@ package io.github.kr9ly.daybook.io
 /** ファイルの全バイトを読む。ファイルが存在しなければ空配列。 */
 internal expect fun readFileOrEmpty(path: FilePath): ByteArray
 
+/** ファイルが存在するか。 */
+internal expect fun fileExists(path: FilePath): Boolean
+
+/** 空ファイルを作成する。既に存在する場合は何もしない（マイグレーションマーカー用）。 */
+internal expect fun createEmptyFile(path: FilePath)
+
 /** ディレクトリを（親ごと）作成する。既に存在する場合は何もしない。 */
 internal expect fun mkdirs(path: FilePath)
 

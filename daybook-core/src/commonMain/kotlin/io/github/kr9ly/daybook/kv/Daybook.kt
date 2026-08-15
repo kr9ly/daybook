@@ -102,6 +102,11 @@ public interface Daybook {
          * android.system.Os を結線する。素の open はプラットフォーム既定
          * （JVM では WatchService）へのフォールバックになる。
          *
+         * daybook 1.x で作られたストア（ジャーナルフォーマット version 1）はそのままでは
+         * 開けない。1.x からのアップグレードは [DaybookOpenOptions.migrations] に
+         * [MigrationSource.Companion.daybook1xJournal] を指定してデータを引き継ぐ
+         * （Android の `Context.openDaybook` は自動で含める）。
+         *
          * ジャーナルとして読めないファイルがある場合は
          * [io.github.kr9ly.daybook.journal.JournalFormatException]、
          * レコードが KV 操作として読めない場合は [KvEncodingException]。

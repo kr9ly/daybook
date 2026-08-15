@@ -118,6 +118,18 @@ SharedPreferences 顔（:daybook の DaybookPreferencesCache）と共通 open（
 
 公開しないもの: compactionThreshold・sinkFactory・compactionHook・lockFactory はテスト/チューニング用フックとして internal に留める（ビルダーなら後から公開する余地が常にある）。
 
+### MigrationSource + 1.x ジャーナル取り込み（裁定 2026-08-15、実装済み）
+
+上の結線スロットの型を確定し、最初のソースとして 1.x ジャーナルの一回きり取り込みを実装した。
+
+- 公開型は `MigrationSource`（`id` + `read(environment): Map<String, Any>?`）と `DaybookOpenOptions.migrations: List<MigrationSource>`。ソースの実装は当面ライブラリ提供のみ（1.x は `MigrationSource.daybook1xJournal()`）。将来のスキーマ定義 DSL（NSUserDefaults / SharedPreferences のキー写像）は同じ interface の上に足す
+- ジャーナルフォーマットのバージョンを 1 → 2 に上げた。2.0 のコーデックは Double 型タグを version 1 のまま書いており「同じバージョン番号で別フォーマット」の嘘状態だったのを解消。エンジンは version 1 を未知フォーマットとして拒否し（規律どおり）、1.x データの引き継ぎは MigrationSource だけが担う。バージョンポリシーは JournalFile の KDoc に明文化
+- 実行契約の精緻化: read はストアを開く前・レジストリのロック下（1.x ジャーナルのようにソースがストアのファイル名前空間を占有している場合に退避できるよう）、適用（writeBatch）はリプレイ後・open が返る前。null 返しは「まだ読める状態にない」（iOS prewarming 用の保留、マーカーを作らず次回再試行）、空マップは「読み取り完了・引き継ぐものなし」（マーカー作成）
+- 冪等マーカーはソースごとのサイドカー `<name>.<id>.migrated`（1.x の `<name>.imported` 方式の一般化）。マーカー作成前のクラッシュは再取り込みで回復（取り込みはユーザー編集の前に走る構造なので編集は失われない）。マルチプロセス同時アップグレードの二重取り込みレースは 1.x の prefs 取り込みと同じ割り切りで許容し KDoc に明記
+- 1.x ジャーナルは読み取り後 `<name>.journal.v1` へ退避して温存（deleteSource=false と同じロールバック経路方針。世代解決の走査に載らない名前）。1.x フォーマットの読み込みコードは Daybook1xJournalMigrationSource に凍結コピーとして隔離（現行コーデックと共有しない。壊れたテールの黙殺・compaction 残骸の採用など 1.x のオープン時セマンティクスを再現、世代命名は 1.x から不変のため JournalDirectory を共用）
+- Android（:daybook）は全入口 — SharedPreferences 顔・Context.openDaybook・マイグレーション API の一時オープン — で daybook1xJournal を自動で含める（「1.x 利用者は再コンパイルのみ」の互換目標の帰結。両顔がストアを共有する以上、どちらが先に生成しても引き継がれる必要がある）。素の common `Daybook.open` は明示指定
+- 1.x の prefs 取り込み（importFromSharedPreferences）は 1.x ジャーナル取り込みの後に実行され、1.x 時代の `<name>.imported` マーカーもそのまま尊重される
+
 ### 論点: 値型の不一致
 
 `Settings` は Int/Long/String/Float/Double/Boolean を持ち、StringSet を持たない。

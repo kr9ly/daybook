@@ -22,4 +22,17 @@ public class DaybookOpenOptions internal constructor() {
      * macOS ではポーリング実装のため検知が秒オーダーになる点に注意。
      */
     public var multiProcess: Boolean = false
+
+    /**
+     * ストアの生成時に一度だけ実行するマイグレーションソース。既定は空。
+     *
+     * 実行契約（冪等マーカー・実行位置・失敗時の挙動）は [MigrationSource] を参照。
+     * multiProcess と違い再取得時の一致は要求されない: 生成時の挙動だけを表し、
+     * キャッシュヒット時は黙って無視される（1.x の import フラグと同じ意味論）。
+     * 同じ [MigrationSource.id] を重複指定した場合は最初の 1 つだけが実行される。
+     *
+     * 1.x からのアップグレードには [MigrationSource.Companion.daybook1xJournal] を指定する
+     * （Android の :daybook の入口は自動で含めるため指定不要）。
+     */
+    public var migrations: List<MigrationSource> = emptyList()
 }

@@ -7,6 +7,12 @@ internal actual fun readFileOrEmpty(path: FilePath): ByteArray {
     return if (file.exists()) file.readBytes() else ByteArray(0)
 }
 
+internal actual fun fileExists(path: FilePath): Boolean = File(path.path).exists()
+
+internal actual fun createEmptyFile(path: FilePath) {
+    File(path.path).createNewFile()
+}
+
 internal actual fun mkdirs(path: FilePath) {
     File(path.path).mkdirs()
 }
