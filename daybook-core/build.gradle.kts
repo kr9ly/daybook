@@ -1,3 +1,7 @@
+import org.gradle.api.tasks.testing.AbstractTestTask
+import org.gradle.api.tasks.testing.TestDescriptor
+import org.gradle.api.tasks.testing.TestListener
+import org.gradle.api.tasks.testing.TestResult
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
@@ -67,4 +71,23 @@ kotlin {
             }
         }
     }
+}
+
+// K/N のテストタスクは既定では件数をログに出さず、CI で「0 件で緑」を見分けられない。
+// 全テストタスクの完了時に件数サマリを 1 行出す
+tasks.withType<AbstractTestTask>().configureEach {
+    val taskPath = path
+    addTestListener(object : TestListener {
+        override fun beforeSuite(suite: TestDescriptor) {}
+        override fun beforeTest(testDescriptor: TestDescriptor) {}
+        override fun afterTest(testDescriptor: TestDescriptor, result: TestResult) {}
+        override fun afterSuite(suite: TestDescriptor, result: TestResult) {
+            if (suite.parent == null) {
+                logger.lifecycle(
+                    "$taskPath: ${result.resultType} — ${result.testCount} tests " +
+                        "(${result.successfulTestCount} passed, ${result.failedTestCount} failed, ${result.skippedTestCount} skipped)",
+                )
+            }
+        }
+    })
 }

@@ -1,12 +1,152 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package io.github.kr9ly.daybook.journal
 
-/**
- * 暫定スタブ。kqueue / dispatch source による実装に置き換えるまで、
- * multiProcess の Daybook.open を fail-fast にする（シングルプロセス経路はここを通らない）。
- *
- * iOS の multiProcess（App Group 共有）は 2.0 時点で実装あり・保証なしの扱い（裁定 2026-08-15）。
- */
+import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.withLock
+import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.IoException
+import io.github.kr9ly.daybook.io.listDirectory
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.ptr
+import platform.darwin.DISPATCH_VNODE_DELETE
+import platform.darwin.DISPATCH_VNODE_EXTEND
+import platform.darwin.DISPATCH_VNODE_RENAME
+import platform.darwin.DISPATCH_VNODE_WRITE
+import platform.darwin._dispatch_source_type_vnode
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_queue_create
+import platform.darwin.dispatch_resume
+import platform.darwin.dispatch_source_cancel
+import platform.darwin.dispatch_source_create
+import platform.darwin.dispatch_source_set_cancel_handler
+import platform.darwin.dispatch_source_set_event_handler
+import platform.darwin.dispatch_source_t
+import platform.posix.O_EVTONLY
+import platform.posix.close
+import platform.posix.errno
+import platform.posix.open
+
 internal actual fun platformJournalWatcherFactory(): JournalWatcherFactory =
-    throw UnsupportedOperationException(
-        "multiProcess journal watcher is not implemented yet on Apple platforms",
-    )
+    DispatchSourceJournalWatcherFactory
+
+/**
+ * dispatch source（DISPATCH_SOURCE_TYPE_VNODE）によるジャーナルディレクトリの検知実装。
+ *
+ * vnode 監視の実体は kqueue の EVFILT_VNODE と同じだが、Kotlin/Native の iOS platform lib は
+ * sys/event.h（kqueue/kevent）を含まないため、自前 cinterop なしで使える dispatch source を採る。
+ *
+ * inotify と違い、vnode 監視はディレクトリのエントリ増減しか報せず、既存ファイルへの追記
+ * （ジャーナル成長）は対象ファイル自身の vnode を監視しないと検知できない。
+ * このためディレクトリに加えて直下の各ファイルを個別に監視し、イベントのたびに
+ * ディレクトリを再走査して監視対象を追随させる（走査から登録までの隙間に起きた変化は、
+ * その走査を起こしたイベントの通知自体がカバーする — 受け手は通知のたびにジャーナル側を確認する契約）。
+ *
+ * イベントの種別・対象は見ずに「変わったかもしれない」通知に畳む点は他プラットフォームと同じ。
+ */
+internal object DispatchSourceJournalWatcherFactory : JournalWatcherFactory {
+
+    override fun watch(directory: FilePath, onChange: () -> Unit): AutoCloseable {
+        val dirFd = open(directory.path, O_EVTONLY)
+        if (dirFd < 0) throw IoException("cannot open for watch: ${directory.path} (errno=$errno)")
+        return DispatchSourceWatch(directory, dirFd, onChange)
+    }
+}
+
+private val vnodeEvents =
+    (DISPATCH_VNODE_WRITE or DISPATCH_VNODE_EXTEND or DISPATCH_VNODE_DELETE or DISPATCH_VNODE_RENAME).convert<ULong>()
+
+internal class DispatchSourceWatch(
+    private val directory: FilePath,
+    dirFd: Int,
+    private val onChange: () -> Unit,
+) : AutoCloseable {
+
+    /** 全ハンドラと再走査を直列化する専用キュー。 */
+    private val queue = dispatch_queue_create("io.github.kr9ly.daybook.journal.watch", null)
+
+    private val lock = Lock()
+    private var closed = false
+
+    /** 監視中のファイル。queue 上でのみ触る。 */
+    private val fileSources = mutableMapOf<String, dispatch_source_t>()
+
+    private val dirSource: dispatch_source_t
+
+    init {
+        val source = createVnodeSource(dirFd) {
+            rescanFiles()
+            notifyChange()
+        }
+        if (source == null) {
+            close(dirFd)
+            throw IoException("dispatch_source_create failed: ${directory.path}")
+        }
+        dirSource = source
+        // 監視開始時点で存在するファイル（開いたばかりのジャーナル等）も追記検知の対象にする。
+        // 初期走査も queue 上で行い、以後の再走査と直列化する
+        dispatch_async(queue) { rescanFiles() }
+    }
+
+    /** [fd] の vnode イベントで [handler] を呼ぶ source を作って開始する。失敗時は null（fd は閉じない）。 */
+    private fun createVnodeSource(fd: Int, handler: () -> Unit): dispatch_source_t {
+        val source = dispatch_source_create(_dispatch_source_type_vnode.ptr, fd.convert(), vnodeEvents, queue)
+            ?: return null
+        dispatch_source_set_event_handler(source, handler)
+        // cancel 完了後はハンドラがもう走らないため、fd はここで閉じるのが安全
+        dispatch_source_set_cancel_handler(source) { close(fd) }
+        dispatch_resume(source)
+        return source
+    }
+
+    /**
+     * ディレクトリ直下を走査し、増えたファイルの監視を登録・消えたファイルの監視を外す。
+     * queue 上でのみ呼ぶ。
+     */
+    private fun rescanFiles() {
+        val names = listDirectory(directory)?.toSet() ?: emptySet()
+        val vanished = fileSources.keys.filter { it !in names }
+        for (name in vanished) {
+            fileSources.remove(name)?.let { dispatch_source_cancel(it) }
+        }
+        for (name in names) {
+            if (name in fileSources) continue
+            // 走査と open の間に消えた等の失敗は黙殺する。次のイベントの再走査で追随する
+            val fd = open(directory.resolve(name).path, O_EVTONLY)
+            if (fd < 0) continue
+            val source = createVnodeSource(fd) { notifyChange() }
+            if (source == null) {
+                close(fd)
+                continue
+            }
+            fileSources[name] = source
+        }
+    }
+
+    private fun notifyChange() {
+        val stopped = lock.withLock { closed }
+        if (!stopped) onChange()
+    }
+
+    /**
+     * 監視を止める。以後の通知は即座に抑止し、source のキャンセルは queue 上で非同期に行う。
+     *
+     * JVM actual の WatchServiceWatch と同じく、監視側との同期待ち（dispatch_sync）はしない
+     * （KvStore.close が書き込みロックの内側から呼ぶため、イベントハンドラが onChange 経由で
+     * 同じロックを待っていると dispatch_sync はデッドロックする）。
+     */
+    override fun close() {
+        lock.withLock {
+            if (closed) return
+            closed = true
+        }
+        dispatch_async(queue) {
+            dispatch_source_cancel(dirSource)
+            for (source in fileSources.values) {
+                dispatch_source_cancel(source)
+            }
+            fileSources.clear()
+        }
+    }
+}

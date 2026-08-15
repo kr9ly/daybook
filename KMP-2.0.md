@@ -279,6 +279,26 @@ expect/actual と素のインターフェースの使い分け:
   ~/.konan は libs.versions.toml のハッシュをキーにキャッシュ）。
   iOS レーンを CI 駆動で回す間は push trigger に v2 ブランチを追加（main マージ時に外す）
 
+実施記録（2026-08-15: Apple watcher は dispatch source で実装 — kqueue 不採用の裁定）:
+
+- 裁定: Apple の journal watcher は kqueue 直叩きではなく dispatch source（DISPATCH_SOURCE_TYPE_VNODE）で実装する。
+  K/N の iOS platform lib は sys/event.h（kqueue/kevent）を含まない
+  （konan/platformDef/ios_arm64 の posix.def / darwin.def を実確認）ため、kqueue には自前 cinterop が必要で、
+  cinterop タスクは macOS でしかビルドできず手元ループを失う。dispatch source は vnode 監視の実体が
+  kqueue の EVFILT_VNODE と同じで、platform.darwin の標準バインディングだけで完結する
+- vnode 監視は inotify と違いディレクトリのエントリ増減しか報せず、既存ファイルへの追記（ジャーナル成長）を
+  検知できないため、ディレクトリ + 直下ファイル個別監視 + イベントごとの再走査で追随する構造にした。
+  走査から登録までの隙間の変化は、走査を起こしたイベントの通知自体がカバーする（受け手が確認する契約）
+- close は closed フラグで通知を即時抑止し、source のキャンセルは専用 serial queue に非同期投函する。
+  dispatch_sync は使わない（KvStore.close が書き込みロック内から呼ぶため、ハンドラが onChange 経由で
+  同じロックを待っていると デッドロックする — WatchServiceWatch が join しないのと同じ理由）
+- appleMain のメタデータコンパイル（compileAppleMainKotlinMetadata）は Linux ホストでも走るため、
+  シンボル解決レベルの誤りは手元で検出できる（kqueue 不在もこれで発覚）。実行検証は appleTest
+  （DispatchSourceJournalWatcherTest 3 件 — 生成/変更検知・既存ファイル追記検知・close 冪等と停止）を
+  GHA の iosSimulatorArm64Test で回す
+- あわせて全テストタスクに件数サマリの 1 行ログを追加（daybook-core/build.gradle.kts の AbstractTestTask 設定。
+  K/N テストタスクは既定で件数を出さず「0 件で緑」を CI で見分けられないため）
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
