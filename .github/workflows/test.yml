@@ -11,6 +11,45 @@ permissions:
   contents: write
 
 jobs:
+  # フォーマット検査は test と切り離した独立 job（速いフィードバック + 失敗理由の分離）
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run spotless check
+        run: ./gradlew spotlessCheck
+
+  # ios-simulator-test は macOS ランナーが高コストなため、関連パスの変更時だけ走らせる
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # push では同一ブランチの直前コミットと比較する（省略時はデフォルトブランチ比較になり
+          # 常に true になってしまう）。pull_request ではこの入力は無視され PR の base と比較される
+          base: ${{ github.ref_name }}
+          filters: |
+            ios:
+              - 'daybook-core/**'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle.properties'
+              - 'gradle/**'
+              - '.github/workflows/test.yml'
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -66,6 +105,8 @@ jobs:
   # Apple 向けコンパイルは macOS ホストでしかできないため、このジョブが iOS レーンの唯一の検証点。
   # iosArm64（実機向け）はコンパイルまで、テスト実行は iosSimulatorArm64 のシミュレータで行う
   ios-simulator-test:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
