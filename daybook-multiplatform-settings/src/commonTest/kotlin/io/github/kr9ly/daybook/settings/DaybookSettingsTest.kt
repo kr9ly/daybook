@@ -140,10 +140,10 @@ class DaybookSettingsTest {
         assertNull(settings.getIntOrNull("a"))
     }
 
-    // --- 両顔の共有 ---
+    // --- API 間のストア共有 ---
 
     @Test
-    fun daybookFaceAndSettingsFace_shareTheSameStore() {
+    fun daybookApiAndSettingsAdapter_shareTheSameStore() {
         val daybook = open()
         val settings = DaybookSettings(daybook)
 

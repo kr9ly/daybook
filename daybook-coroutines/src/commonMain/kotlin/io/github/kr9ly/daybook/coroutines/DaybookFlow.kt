@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.callbackFlow
  * 通知は操作ベース: ジャーナルに書かれた操作のキーがそのまま流れ、同じ値の put や
  * 不在キーの remove も発火する。clear は消えた各キーが個別に流れる（:daybook の
  * SharedPreferences 向け changesAsFlow が「実効変更のみ・clear は null」だったのとは
- * 異なる、core の顔の契約）。collect 開始時は無音 — キー変更の流れに「現在の要素」は
+ * 異なる、共通 API の契約）。collect 開始時は無音 — キー変更の流れに「現在の要素」は
  * 存在しないため、初期発火はない。
  *
  * これはイベント流: [DaybookProperty.asFlow] と違い conflate も重複排除もされず、

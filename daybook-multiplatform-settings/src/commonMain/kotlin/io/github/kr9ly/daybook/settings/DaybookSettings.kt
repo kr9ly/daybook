@@ -8,11 +8,11 @@ import io.github.kr9ly.daybook.kv.DaybookChangeListener
 import kotlin.concurrent.Volatile
 
 /**
- * daybook ストアを multiplatform-settings の [Settings] / [ObservableSettings] として使う顔。
+ * daybook ストアを multiplatform-settings の [Settings] / [ObservableSettings] として使うアダプタ。
  *
  * [Daybook.open][io.github.kr9ly.daybook.kv.Daybook.Companion.open] で開いたストアを包む
  * 薄いアダプタで、独自の状態は持たない。同じ [Daybook] を daybook 独自 API と併用でき、
- * どちらの顔から書いても両方の顔・リスナーに見える。
+ * どちらの API から書いても両方の API・リスナーに見える。
  *
  * multiplatform-settings のネイティブ実装（SharedPreferencesSettings 等）との対応:
  *
@@ -24,7 +24,7 @@ import kotlin.concurrent.Volatile
  *   同値 put も通知するのとは意図的に異なる）
  *
  * 型互換ポリシー（fail-fast 既定）: daybook は [Settings] にない string-set 型を持つ。
- * string-set が格納されたキーは [keys] / [size] には見えるが、この顔の型付き getter で
+ * string-set が格納されたキーは [keys] / [size] には見えるが、このアダプタの型付き getter で
  * 読むと ClassCastException になる（緩和オプションは未実装）。同様に、getter と実際の
  * 格納型が食い違う場合も ClassCastException（multiplatform-settings の契約では未定義挙動）。
  *

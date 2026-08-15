@@ -18,11 +18,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * 両顔統合のテスト — 同じ name の [Context.openDaybook]（Daybook の顔）と
- * [Context.getDaybookSharedPreferences]（SharedPreferences の顔）が同一ストアを共有する契約。
+ * API 間のストア共有のテスト — 同じ name の [Context.openDaybook]（Daybook API）と
+ * [Context.getDaybookSharedPreferences]（SharedPreferences 互換 API）が同一ストアを共有する契約。
  */
 @RunWith(RobolectricTestRunner::class)
-class DualFaceTest {
+class DualApiTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
 
@@ -37,7 +37,7 @@ class DualFaceTest {
     // --- ストア共有 ---
 
     @Test
-    fun bothFaces_shareTheSameStore() {
+    fun bothApis_shareTheSameStore() {
         val daybook = context.openDaybook(SettingsSchema)
         val prefs = context.getDaybookSharedPreferences("settings")
 
@@ -49,7 +49,7 @@ class DualFaceTest {
     }
 
     @Test
-    fun bothFaces_shareTheSameStore_whenPrefsFaceOpensFirst() {
+    fun bothApis_shareTheSameStore_whenPrefsApiOpensFirst() {
         val prefs = context.getDaybookSharedPreferences("settings")
         val daybook = context.openDaybook(SettingsSchema)
         prefs.edit().putInt("count", 7).commit()
@@ -59,7 +59,7 @@ class DualFaceTest {
     @Test
     fun defaultPrefsName_pointsToTheSameStore() {
         // スキーマの宣言名を prefs 規約（<packageName>_preferences）にすると、
-        // デフォルトの SharedPreferences 顔と同一ストアを指す（裁定 2026-08-15）
+        // デフォルトの SharedPreferences 互換 API と同一ストアを指す（裁定 2026-08-15）
         val schema = object : DaybookSchema("${context.packageName}_preferences") {}
         val daybook = context.openDaybook(schema)
         val prefs = context.getDefaultDaybookSharedPreferences()
@@ -70,7 +70,7 @@ class DualFaceTest {
     // --- リスナーの相互可視性 ---
 
     @Test
-    fun daybookListener_seesPrefsFaceEdits() {
+    fun daybookListener_seesPrefsApiEdits() {
         val daybook = context.openDaybook(SettingsSchema)
         val prefs = context.getDaybookSharedPreferences("settings")
         val latch = CountDownLatch(1)
@@ -87,9 +87,9 @@ class DualFaceTest {
     }
 
     @Test
-    fun prefsListener_doesNotSeeDaybookFaceEdits() {
+    fun prefsListener_doesNotSeeDaybookApiEdits() {
         // SharedPreferences リスナーはフレームワークの契約を再現しており、
-        // この顔の Editor 経由の編集だけが届く（KDoc に明記した非対称性）
+        // SharedPreferences の Editor 経由の編集だけが届く（KDoc に明記した非対称性）
         val daybook = context.openDaybook(SettingsSchema)
         val prefs = context.getDaybookSharedPreferences("settings")
         val seenKeys = mutableListOf<String?>()
@@ -107,7 +107,7 @@ class DualFaceTest {
     // --- オプション不一致の fail-fast ---
 
     @Test
-    fun prefsFace_onSyncDurabilityStore_isRejected() {
+    fun prefsApi_onSyncDurabilityStore_isRejected() {
         context.openDaybook(SettingsSchema) { durability = Durability.SYNC }
         assertThrows(IllegalArgumentException::class.java) {
             context.getDaybookSharedPreferences("settings")
@@ -115,7 +115,7 @@ class DualFaceTest {
     }
 
     @Test
-    fun multiProcessFlagMismatchAcrossFaces_isRejected() {
+    fun multiProcessFlagMismatchAcrossApis_isRejected() {
         context.openDaybook(SettingsSchema) { multiProcess = true }
         assertThrows(IllegalArgumentException::class.java) {
             context.getDaybookSharedPreferences("settings")
@@ -123,7 +123,7 @@ class DualFaceTest {
     }
 
     @Test
-    fun matchingOptionsAcrossFaces_areAccepted() {
+    fun matchingOptionsAcrossApis_areAccepted() {
         context.openDaybook(MpSchema) { multiProcess = true }
         val prefs = context.getDaybookSharedPreferences("mp", DaybookOptions(multiProcess = true))
         prefs.edit().putInt("n", 1).commit()
@@ -133,7 +133,7 @@ class DualFaceTest {
     // --- 透過 import はストア生成時のみ ---
 
     @Test
-    fun importFlag_hasNoEffectWhenDaybookFaceCreatedStoreFirst() {
+    fun importFlag_hasNoEffectWhenDaybookApiCreatedStoreFirst() {
         context.getSharedPreferences("settings", Context.MODE_PRIVATE)
             .edit().putString("legacy", "value").commit()
 
@@ -149,7 +149,7 @@ class DualFaceTest {
     // --- 永続化 ---
 
     @Test
-    fun daybookFaceData_survivesCacheReset() {
+    fun daybookApiData_survivesCacheReset() {
         context.openDaybook(SettingsSchema).edit { putInt("count", 42) }
         DaybookPreferencesCache.resetForTesting()
         assertEquals(42, context.openDaybook(SettingsSchema).getInt("count", 0))

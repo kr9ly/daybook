@@ -12,10 +12,10 @@ import io.github.kr9ly.daybook.kv.asDaybook
 /**
  * [TestDaybook] の actual 間で共有する実装。
  *
- * 名前ごとの Entry が「ストア + その上の顔たち」を束ねる。ストアは in-memory の
+ * 名前ごとの Entry が「ストア + その上の API アダプタ」を束ねる。ストアは in-memory の
  * 本物のエンジンで、同期配送（deliver = 直接呼び出し）と書き込み観測（記録・失敗注入）を
- * 注入して生成する。Daybook の顔は common で組み立て、プラットフォーム固有の顔
- * （Android の SharedPreferences）は [secondaryFace] 経由で actual 側が同じストアにかぶせる。
+ * 注入して生成する。Daybook アダプタは common で組み立て、プラットフォーム固有のアダプタ
+ * （Android の SharedPreferences）は [secondaryAdapter] 経由で actual 側が同じストアにかぶせる。
  */
 internal class TestDaybookState {
 
@@ -23,7 +23,7 @@ internal class TestDaybookState {
         var store: KvStore? = null
         var schema: DaybookSchema? = null
         var daybook: Daybook? = null
-        var secondaryFace: Any? = null
+        var secondaryAdapter: Any? = null
         var multiProcess: Boolean? = null
         val commits = mutableListOf<RecordedCommit>()
         var failNextWrite = false
@@ -52,19 +52,19 @@ internal class TestDaybookState {
     }
 
     /**
-     * プラットフォーム固有の顔を返す。初回アクセス時に [create] で同じストアの上に生成する。
-     * 顔の型はプラットフォームごとに 1 種類の前提（actual 側だけが呼ぶ）。
+     * プラットフォーム固有のアダプタを返す。初回アクセス時に [create] で同じストアの上に生成する。
+     * アダプタの型はプラットフォームごとに 1 種類の前提（actual 側だけが呼ぶ）。
      */
-    fun <T : Any> secondaryFace(name: String, multiProcess: Boolean, create: (KvStore) -> T): T {
+    fun <T : Any> secondaryAdapter(name: String, multiProcess: Boolean, create: (KvStore) -> T): T {
         lock.withLock {
             val entry = entryFor(name, multiProcess)
-            entry.secondaryFace?.let {
+            entry.secondaryAdapter?.let {
                 @Suppress("UNCHECKED_CAST")
                 return it as T
             }
-            val face = create(storeFor(entry))
-            entry.secondaryFace = face
-            return face
+            val adapter = create(storeFor(entry))
+            entry.secondaryAdapter = adapter
+            return adapter
         }
     }
 
@@ -81,8 +81,8 @@ internal class TestDaybookState {
     }
 
     /**
-     * lock の下で呼ぶ。[multiProcess] が非 null（顔の取得）のときはフラグの整合性を検査する。
-     * フラグは顔をまたいで 1 つ: Daybook と SharedPreferences で異なる値を渡すのも不整合。
+     * lock の下で呼ぶ。[multiProcess] が非 null（アダプタの取得）のときはフラグの整合性を検査する。
+     * フラグは API をまたいで 1 つ: Daybook と SharedPreferences で異なる値を渡すのも不整合。
      */
     private fun entryFor(name: String, multiProcess: Boolean?): Entry {
         require(name.isNotEmpty()) { "name must not be empty" }
@@ -102,7 +102,7 @@ internal class TestDaybookState {
         return entry
     }
 
-    /** lock の下で呼ぶ。ストアは名前ごとに 1 つで、全部の顔が共有する。 */
+    /** lock の下で呼ぶ。ストアは名前ごとに 1 つで、全部の API アダプタが共有する。 */
     private fun storeFor(entry: Entry): KvStore {
         entry.store?.let { return it }
         val store = KvStore.openInMemory(

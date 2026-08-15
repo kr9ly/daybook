@@ -53,7 +53,7 @@ class DaybookRegistryBridgeTest {
         }
     }
 
-    // --- openDaybook（Daybook の顔 + 注入） ---
+    // --- openDaybook（Daybook アダプタ + 注入） ---
 
     @Test
     fun openDaybook_multiProcessUsesInjectedWatcher() {
@@ -108,10 +108,10 @@ class DaybookRegistryBridgeTest {
         assertTrue(sync.syncCount > 0)
     }
 
-    // --- getOrOpenStore（SharedPreferences の顔 + onCreate） ---
+    // --- getOrOpenStore（SharedPreferences 互換 API + onCreate） ---
 
     @Test
-    fun getOrOpenStore_sharesStoreWithDaybookFace() {
+    fun getOrOpenStore_sharesStoreWithDaybookApi() {
         val store = DaybookRegistry.getOrOpenStore(
             dir(),
             "store",
@@ -145,7 +145,7 @@ class DaybookRegistryBridgeTest {
     }
 
     @Test
-    fun getOrOpenStore_onCreateSkippedWhenDaybookFaceCreatedFirst() {
+    fun getOrOpenStore_onCreateSkippedWhenDaybookApiCreatedFirst() {
         Daybook.open(dir(), StoreSchema)
         var created = 0
         DaybookRegistry.getOrOpenStore(
@@ -200,11 +200,11 @@ class DaybookRegistryBridgeTest {
         }
     }
 
-    // --- スキーマの採用（SharedPreferences 顔が先行するケース） ---
+    // --- スキーマの採用（SharedPreferences 互換 API が先行するケース） ---
 
-    /** 顔なしで生成されたストアに、最初のスキーマ付き open がスキーマを採用させる。 */
+    /** スキーマなしで生成されたストアに、最初のスキーマ付き open がスキーマを採用させる。 */
     @Test
-    fun schemaAdoption_prefsFaceFirstThenSchemaOpenSharesStore() {
+    fun schemaAdoption_prefsApiFirstThenSchemaOpenSharesStore() {
         val store = DaybookRegistry.getOrOpenStore(
             dir(),
             "store",

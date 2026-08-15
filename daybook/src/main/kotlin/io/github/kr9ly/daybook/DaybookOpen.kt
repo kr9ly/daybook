@@ -19,20 +19,20 @@ import io.github.kr9ly.daybook.kv.MigrationSource
  * fail-fast・例外）は [Daybook.open] と同一。
  *
  * 同じ名前（[DaybookSchema] の宣言名）を [getDaybookSharedPreferences] で開くと、裏のストアは
- * 同一になる（両顔統合）: どちらの顔からの編集ももう一方の顔の読み出しに即座に見え、
- * こちらの変更リスナーには SharedPreferences 顔経由の編集も届く。逆は非対称で、
- * SharedPreferences のリスナーに届くのはあちらの Editor 経由の編集だけ。SharedPreferences 顔の
- * durability は常に既定（ASYNC）なので、両顔で使う名前を SYNC で開くことはできない
+ * 同一になる: どちらの API からの編集ももう一方の API の読み出しに即座に見え、
+ * こちらの変更リスナーには SharedPreferences 互換 API 経由の編集も届く。逆は非対称で、
+ * SharedPreferences のリスナーに届くのはあちらの Editor 経由の編集だけ。SharedPreferences 互換 API の
+ * durability は常に既定（ASYNC）なので、両 API で使う名前を SYNC で開くことはできない
  * （不一致で例外）。デフォルトの SharedPreferences（`getDefaultDaybookSharedPreferences`）と
- * 両顔統合したい場合は、スキーマの宣言名を `<packageName>_preferences` にすること。
+ * ストアを共有したい場合は、スキーマの宣言名を `<packageName>_preferences` にすること。
  *
  * プラットフォーム実装の結線はストアのインスタンス生成時にだけ効く。同じストアを
  * 素の [Daybook.open] が先に生成していた場合は、WatchService 結線のまま同一インスタンスが
- * 返る。Android では常にこの拡張（または SharedPreferences 顔の Context 拡張）を使うこと。
+ * 返る。Android では常にこの拡張（または SharedPreferences 互換 API の Context 拡張）を使うこと。
  *
  * daybook 1.x からのアップグレード: 1.x のジャーナルが残っている場合、ストアの初回生成時に
  * データを一度だけ引き継ぐ（[io.github.kr9ly.daybook.kv.MigrationSource.Companion.daybook1xJournal]
- * を自動で含める。SharedPreferences 顔と共通の冪等マーカーで一度きり）。
+ * を自動で含める。SharedPreferences 互換 API と共通の冪等マーカーで一度きり）。
  *
  * @param schema ストア宣言。ストア名と型付きキー一式をここから取る。
  * @param configure ストア生成時のオプション。[DaybookOpenOptions] を参照。

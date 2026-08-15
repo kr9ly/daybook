@@ -28,7 +28,7 @@ package io.github.kr9ly.daybook.kv
  * プロセス内で 1 つのインスタンス）として宣言すること。
  *
  * スキーマはストア内容の制約ではない: 宣言されていないキーがストアに存在してもよい
- * （SharedPreferences 顔経由の書き込みや全キー import の結果など）。宣言は「型付き API から
+ * （SharedPreferences 互換 API 経由の書き込みや全キー import の結果など）。宣言は「型付き API から
  * 見える面」を固定するだけで、検証や削除は行わない。
  *
  * @param name ストア名。空文字と `/` を含む名前は不可（IllegalArgumentException）。

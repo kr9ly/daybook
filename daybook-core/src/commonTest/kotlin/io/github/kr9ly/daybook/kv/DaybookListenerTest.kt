@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  *
  * 配送は専用スレッドで非同期のため、待ち合わせ（waitUntil ポーリング）が要る。
  * 配送順序・操作ベース通知の本体はエンジン側（KvStoreTest 等）で検証済みで、
- * ここでは顔の登録・解除がエンジンに素通しされることを確認する。
+ * ここでは Daybook アダプタの登録・解除がエンジンに素通しされることを確認する。
  */
 class DaybookListenerTest {
 

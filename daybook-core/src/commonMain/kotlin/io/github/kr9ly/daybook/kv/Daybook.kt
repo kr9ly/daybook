@@ -17,13 +17,13 @@ public fun interface DaybookChangeListener {
 }
 
 /**
- * daybook ストアの共通の顔。
+ * daybook ストアの共通 API。
  *
  * 読み出しはすべてインメモリキャッシュへの同期アクセス（ディスク IO なし）。
  * getter はキー不在で default、格納値の型違いで ClassCastException。
  * 書き込みは [edit] に集約し、1 ブロック = 1 ジャーナルレコードのアトミックなバッチになる。
  *
- * Android の SharedPreferences 互換の顔（:daybook）との意図的な違い:
+ * Android の SharedPreferences 互換 API（:daybook）との意図的な違い:
  *
  * - edit は呼び出し順どおりに適用・通知される（clear を先頭に並べ替える AOSP 模倣をしない）
  * - 同値の put や不在キーの remove も操作として書かれ、そのまま通知される（操作ベース）
@@ -108,7 +108,7 @@ public interface Daybook {
          * 不要（SharedPreferences と同じライフサイクル観）。
          *
          * スキーマの同一性はオブジェクト同一性で検査される: 同じストアを別のスキーマ
-         * オブジェクトで開き直すと IllegalArgumentException。Android の SharedPreferences 顔
+         * オブジェクトで開き直すと IllegalArgumentException。Android の SharedPreferences 互換 API
          * （文字列 name）が先に同名のストアを生成していた場合、最初のスキーマ付き open が
          * そのストアにスキーマを採用させ、以後は同じ検査に載る。
          *

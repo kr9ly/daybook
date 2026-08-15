@@ -20,11 +20,11 @@ public annotation class DaybookInternalApi
 /**
  * daybook-test の入口: アダプタ層（Editor バッチ・通知算出・リスナーセマンティクス・
  * 防御コピー）は本物の daybook 実装のまま、裏のストアを外から渡して
- * [SharedPreferences] の顔を組み立てる。
+ * [SharedPreferences] のアダプタを組み立てる。
  *
  * ストアの生成（in-memory・書き込み観測・失敗注入）は daybook-test 側の責務。
- * 顔を組み立てる側と分離することで、同じストアに core の顔（Daybook）と
- * SharedPreferences の顔を同時にかぶせられる。
+ * アダプタを組み立てる側と分離することで、同じストアに core の API（Daybook）と
+ * SharedPreferences のアダプタを同時にかぶせられる。
  */
 @DaybookInternalApi
 public object DaybookTestBridge {

@@ -3,10 +3,10 @@ package io.github.kr9ly.daybook.kv
 import io.github.kr9ly.daybook.internal.DaybookInternalApi
 
 /**
- * エンジン（[KvStore]）を公開の顔 [Daybook] に適合させる。
+ * エンジン（[KvStore]）を公開 API の [Daybook] に適合させる。
  *
  * daybook 自身の成果物（daybook-coroutines / daybook-test）がテストや in-memory
- * コンテナの構築でエンジンから顔を組み立てるためのブリッジ。
+ * コンテナの構築でエンジンから Daybook アダプタを組み立てるためのブリッジ。
  */
 @DaybookInternalApi
 public fun KvStore.asDaybook(schema: DaybookSchema): Daybook = KvStoreDaybook(this, schema)

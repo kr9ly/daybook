@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
- * daybook ストアを multiplatform-settings の [FlowSettings] として使う顔。
+ * daybook ストアを multiplatform-settings の [FlowSettings] として使うアダプタ。
  *
  * [DaybookSettings] の Flow 版で、型互換ポリシー（string-set は fail-fast）と
  * 値変化ベースの通知契約はあちらと同一。suspend 関数は名ばかりで、実体は

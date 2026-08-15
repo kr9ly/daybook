@@ -8,7 +8,7 @@ import java.io.IOException
 
 /**
  * [DaybookTestBridge] のテスト。
- * 渡したストアの上で顔が動くこと・delivery の配線・ストア由来の書き込み失敗の現れ方を
+ * 渡したストアの上でアダプタが動くこと・delivery の配線・ストア由来の書き込み失敗の現れ方を
  * SharedPreferences 契約の側から検証する。書き込み観測の変換（RecordedCommit）は
  * daybook-test 側の責務になったため、ここでは扱わない。
  * Looper に触れない配送を注入するため Robolectric は不要（素の JVM で走る）。
@@ -24,7 +24,7 @@ class DaybookTestBridgeTest {
     private val prefs = DaybookTestBridge.wrapAsSharedPreferences(store) { it.run() }
 
     @Test
-    fun prefsFace_operatesOnGivenStore() {
+    fun prefsApi_operatesOnGivenStore() {
         prefs.edit().putString("key", "value").commit()
         assertEquals("value", store.get("key"))
         store.put("other", 1)

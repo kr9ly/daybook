@@ -7,9 +7,9 @@ import io.github.kr9ly.daybook.kv.Daybook
 import io.github.kr9ly.daybook.kv.DaybookSchema
 
 /**
- * Android の actual は共通の顔に加えて [SharedPreferences] の顔（1.x API）を持つ。
+ * Android の actual は共通 API に加えて 1.x の [SharedPreferences] 互換 API を持つ。
  * 同じ name の [getDaybook] と [getSharedPreferences] は同一のストアを共有し、
- * どちらの顔からの編集も互いに見える。契約の本体は expect 側の KDoc を参照。
+ * どちらの API からの編集も互いに見える。契約の本体は expect 側の KDoc を参照。
  */
 public actual class TestDaybook actual constructor(private val packageName: String) {
 
@@ -35,8 +35,8 @@ public actual class TestDaybook actual constructor(private val packageName: Stri
      * 依存しないため、この上で無変更で動く。
      *
      * 同名の呼び出しは同一インスタンスを返し、同じ名前の [getDaybook] ともストアを共有する。
-     * 顔をまたぐ通知は非対称な点に注意: [getDaybook] のリスナーはストアレベルのため両顔の
-     * 編集が届くが、SharedPreferences のリスナーに届くのはこの顔経由の編集だけ
+     * API をまたぐ通知は非対称な点に注意: [getDaybook] のリスナーはストアレベルのため両 API の
+     * 編集が届くが、SharedPreferences のリスナーに届くのはこの API 経由の編集だけ
      * （本番の SharedPreferences で他プロセスの編集が届かないのと同型）。
      *
      * @param name prefs 名。空文字と `/` を含む名前は不可。
@@ -48,7 +48,7 @@ public actual class TestDaybook actual constructor(private val packageName: Stri
         name: String,
         multiProcess: Boolean = false,
     ): SharedPreferences =
-        state.secondaryFace(name, multiProcess) { store ->
+        state.secondaryAdapter(name, multiProcess) { store ->
             DaybookTestBridge.wrapAsSharedPreferences(store) { it.run() }
         }
 

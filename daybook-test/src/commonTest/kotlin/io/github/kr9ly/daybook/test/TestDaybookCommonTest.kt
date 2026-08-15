@@ -11,7 +11,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** common の [TestDaybook]（Daybook の顔）の契約テスト。 */
+/** common の [TestDaybook]（Daybook API）の契約テスト。 */
 class TestDaybookCommonTest {
 
     private object StoreSchema : DaybookSchema("store") {

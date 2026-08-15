@@ -16,7 +16,7 @@ import java.nio.ByteBuffer
 import java.util.zip.CRC32
 
 /**
- * 1.x からのアップグレード導線のテスト — Android の入口（SharedPreferences 顔・
+ * 1.x からのアップグレード導線のテスト — Android の入口（SharedPreferences 互換 API・
  * [Context.openDaybook]・マイグレーション API の一時オープン）が 1.x ジャーナルの
  * データを自動で引き継ぐ契約。
  *
@@ -62,7 +62,7 @@ class Upgrade1xTest {
     }
 
     @Test
-    fun prefsFace_migrates1xJournalAutomatically() {
+    fun prefsApi_migrates1xJournalAutomatically() {
         writeV1Journal("settings", "key" to "from-1x")
 
         val prefs = context.getDaybookSharedPreferences("settings")

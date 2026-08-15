@@ -9,9 +9,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 公開の顔 [Daybook] の契約テスト。
+ * 公開 API [Daybook] の契約テスト。
  *
- * ストレージ実装（in-memory）はエンジンと同一コードパスのため、ここでは顔の契約 —
+ * ストレージ実装（in-memory）はエンジンと同一コードパスのため、ここでは公開 API の契約 —
  * getter のデフォルト・型違い・防御コピー・edit のバッチ化 — に集中する。
  */
 class DaybookTest {

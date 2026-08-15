@@ -20,8 +20,8 @@ import io.github.kr9ly.daybook.journal.platformJournalWatcherFactory
  * これはリスナーの可視性（別の取得口から登録したリスナーにも届く）と、
  * 同一ファイルへの多重オープン（シングルプロセスモードでは破損リスク）の排除の前提になる。
  *
- * Android の SharedPreferences 顔（:daybook）も同じレジストリからストアを取得する。
- * 同じ (directory, name) には Daybook の顔と SharedPreferences の顔が同一の KvStore を
+ * Android の SharedPreferences 互換 API（:daybook）も同じレジストリからストアを取得する。
+ * 同じ (directory, name) には Daybook API と SharedPreferences 互換 API が同一の KvStore を
  * 共有し、別ファイルへの多重オープンは起きない。
  *
  * ストアはプロセス寿命で、close 経路は [resetForTesting] だけ。
@@ -36,10 +36,10 @@ public object DaybookRegistry {
         val durability: Durability,
         val multiProcess: Boolean,
     ) {
-        /** 最初のスキーマ付き open が採用するスキーマ。SharedPreferences 顔だけの間は null。 */
+        /** 最初のスキーマ付き open が採用するスキーマ。SharedPreferences 互換 API だけの間は null。 */
         var schema: DaybookSchema? = null
 
-        /** スキーマ採用時に生成される Daybook の顔。 */
+        /** スキーマ採用時に生成される Daybook アダプタ。 */
         var daybook: Daybook? = null
     }
 
@@ -51,7 +51,7 @@ public object DaybookRegistry {
         openWithSchema(directory, schema, options, watcherFactory = null, directorySync = null)
 
     /**
-     * プラットフォーム実装（watcher / directory fsync）を注入して Daybook の顔を取得する。
+     * プラットフォーム実装（watcher / directory fsync）を注入して Daybook アダプタを取得する。
      * Android の Context.openDaybook（:daybook）用。
      *
      * 注入はストアのインスタンス生成時にだけ効く。すでに別経路（[Daybook.open] 等）で
@@ -68,9 +68,9 @@ public object DaybookRegistry {
 
     /**
      * スキーマ付き open の共通経路。エントリを取得（なければ生成）した上で、スキーマの
-     * 採用または同一性検査を行い、Daybook の顔を返す。
+     * 採用または同一性検査を行い、Daybook アダプタを返す。
      *
-     * スキーマの採用: SharedPreferences 顔（文字列 name、1.x API）が先に同名のストアを
+     * スキーマの採用: SharedPreferences 互換 API（文字列 name の 1.x 経路）が先に同名のストアを
      * 生成していた場合、エントリはスキーマ未設定で存在する。最初のスキーマ付き open が
      * スキーマを採用させ、以後の open は同一オブジェクトであることを検査される。
      */
@@ -118,7 +118,7 @@ public object DaybookRegistry {
 
     /**
      * プラットフォーム実装を注入して裏の [KvStore] を取得する。
-     * SharedPreferences 顔（:daybook）が同じストアに顔をかぶせるための入口。
+     * SharedPreferences 互換 API（:daybook）が同じストアにアダプタをかぶせるための入口。
      *
      * durability は常に既定（[Durability.ASYNC]）。同じストアが [Durability.SYNC] で
      * 開かれている場合はオプション不一致で IllegalArgumentException になる。

@@ -8,7 +8,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
- * 同じ name の Daybook の顔と SharedPreferences の顔が同一ストアを共有する契約のテスト。
+ * 同じ name の Daybook API と SharedPreferences 互換 API が同一ストアを共有する契約のテスト。
  * 1.x prefs API と 2.0 共通 API が混在するアプリを、そのままの配線でテストできることの検証。
  */
 class TestDaybookSharedStoreTest {
@@ -16,7 +16,7 @@ class TestDaybookSharedStoreTest {
     private object StoreSchema : DaybookSchema("store")
 
     @Test
-    fun writesThroughEitherFace_areVisibleFromTheOther() {
+    fun writesThroughEitherApi_areVisibleFromTheOther() {
         val world = TestDaybook()
         val prefs = world.getSharedPreferences("store")
         val daybook = world.getDaybook(StoreSchema)
@@ -29,7 +29,7 @@ class TestDaybookSharedStoreTest {
     }
 
     @Test
-    fun multiProcessFlag_isSharedAcrossFaces() {
+    fun multiProcessFlag_isSharedAcrossApis() {
         val world = TestDaybook()
         world.getDaybook(StoreSchema, multiProcess = false)
         assertThrows(IllegalArgumentException::class.java) {
@@ -38,7 +38,7 @@ class TestDaybookSharedStoreTest {
     }
 
     @Test
-    fun commits_recordWritesFromBothFaces() {
+    fun commits_recordWritesFromBothApis() {
         val world = TestDaybook()
         world.getSharedPreferences("store").edit().putString("a", "1").commit()
         world.getDaybook(StoreSchema).edit { putInt("b", 2) }
@@ -52,7 +52,7 @@ class TestDaybookSharedStoreTest {
     }
 
     @Test
-    fun daybookListeners_seeWritesFromBothFaces() {
+    fun daybookListeners_seeWritesFromBothApis() {
         val world = TestDaybook()
         val daybook = world.getDaybook(StoreSchema)
         val events = mutableListOf<Pair<String, Any?>>()
@@ -64,7 +64,7 @@ class TestDaybookSharedStoreTest {
     }
 
     @Test
-    fun prefsListeners_seeOnlyPrefsFaceWrites() {
+    fun prefsListeners_seeOnlyPrefsApiWrites() {
         val world = TestDaybook()
         val prefs = world.getSharedPreferences("store")
         val daybook = world.getDaybook(StoreSchema)
@@ -78,7 +78,7 @@ class TestDaybookSharedStoreTest {
     }
 
     @Test
-    fun failNextWrite_appliesToWhicheverFaceWritesNext() {
+    fun failNextWrite_appliesToWhicheverApiWritesNext() {
         val world = TestDaybook()
         val prefs = world.getSharedPreferences("store")
         world.failNextWrite("store")

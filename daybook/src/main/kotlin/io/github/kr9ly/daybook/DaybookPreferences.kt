@@ -35,11 +35,11 @@ public class DaybookOptions(
  * フレームワーク API と同じく、同一プロセス内では同じ [name] に常に同一インスタンスを返すため、
  * ある参照経由で登録したリスナーには別の参照経由の編集も届く。
  *
- * 同じ [name] を [openDaybook] で開くと、裏のストアは同一になる（両顔統合）:
- * どちらの顔からの編集ももう一方の顔の読み出しに即座に見え、Daybook 側の変更リスナーには
- * SharedPreferences 顔経由の編集も届く。逆は非対称で、SharedPreferences のリスナーに届くのは
- * この顔の Editor 経由の編集だけ（フレームワークのリスナー契約を再現しているため）。
- * Daybook 側は durability を選べるが、この顔は常に既定（ASYNC）なので、同じ [name] を
+ * 同じ [name] を [openDaybook] で開くと、裏のストアは同一になる:
+ * どちらの API からの編集ももう一方の API の読み出しに即座に見え、Daybook 側の変更リスナーには
+ * この SharedPreferences 互換 API 経由の編集も届く。逆は非対称で、SharedPreferences のリスナーに届くのは
+ * この API の Editor 経由の編集だけ（フレームワークのリスナー契約を再現しているため）。
+ * Daybook 側は durability を選べるが、この API は常に既定（ASYNC）なので、同じ [name] を
  * SYNC で開いている場合はオプション不一致で [IllegalArgumentException] になる。
  *
  * データは `filesDir/daybook/` 配下に置かれ、フレームワークの `shared_prefs/` とは完全に別領域。
@@ -95,14 +95,14 @@ public fun Context.getDefaultDaybookSharedPreferences(
 ): SharedPreferences = getDaybookSharedPreferences("${packageName}_preferences", options)
 
 /**
- * name → SharedPreferences 顔のプロセス内キャッシュ。
+ * name → SharedPreferences アダプタのプロセス内キャッシュ。
  *
  * フレームワークの getSharedPreferences と同じく「同名は同一インスタンス」を保証する。
  * これはリスナーの可視性（別の取得口から登録したリスナーにも届く）と、
  * アダプタ内の commit 直列化（インスタンス単位のロック）の前提になる。
  *
  * 裏の [KvStore] はここでは開かず、core の [DaybookRegistry] から取得する。
- * 同じ name には SharedPreferences の顔（この キャッシュ）と Daybook の顔
+ * 同じ name には SharedPreferences 互換 API（このキャッシュ）と Daybook API
  * （[Context.openDaybook]）が同一ストアを共有し、別々の KvStore を同じファイルに
  * 開いてしまう多重オープン（破損リスク / 変更の不可視）は構造的に起きない。
  */
@@ -121,14 +121,14 @@ internal object DaybookPreferencesCache {
     ): SharedPreferences {
         synchronized(prefsByName) {
             // 先にレジストリを通す: name 検証・オプション不一致の fail-fast はレジストリの責務。
-            // 顔のキャッシュにヒットする場合も、フラグ不一致はここで例外になる
+            // アダプタのキャッシュにヒットする場合も、フラグ不一致はここで例外になる
             val store = DaybookRegistry.getOrOpenStore(
                 directory = daybookDir(context).path,
                 name = name,
                 multiProcess = multiProcess,
                 watcherFactory = FileObserverJournalWatcherFactory(),
                 directorySync = defaultDirectorySync(),
-                // 1.x からのアップグレード導線: この顔の利用者は 1.x のジャーナルを
+                // 1.x からのアップグレード導線: この API の利用者は 1.x のジャーナルを
                 // 持っている前提なので、1.x データの引き継ぎを常に含める（冪等・一度きり）
                 migrations = listOf(MigrationSource.daybook1xJournal()),
                 onCreate = { created ->
@@ -164,7 +164,7 @@ internal object DaybookPreferencesCache {
         )
 
     /**
-     * テスト専用: 顔のキャッシュを空にし、レジストリごとリセットする（プロセス再起動の模倣）。
+     * テスト専用: アダプタのキャッシュを空にし、レジストリごとリセットする（プロセス再起動の模倣）。
      * レジストリの全ストアが閉じるため、[Context.openDaybook] で取得した Daybook も無効になる。
      */
     fun resetForTesting() {
