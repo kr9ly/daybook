@@ -237,6 +237,29 @@ expect/actual と素のインターフェースの使い分け:
   iosSimulatorArm64Test がシミュレータ上でそのまま走る。シミュレータは macOS カーネル上で動くので、
   POSIX・kqueue・App Group コンテナの検証としては実機なしでも実がある
 
+実施記録（2026-08-15: linuxX64 手元ループ確立 + POSIX actual 一式 + inotify watcher）:
+
+- daybook-core に linuxX64 ターゲットを追加（検証用でリリース対象ではない旨をビルドスクリプトに明記）。
+  iOS ターゲットの宣言は kqueue/dispatch source watcher の実装とあわせて追加する
+  （appleMain の actual が無いまま宣言すると GHA だけが赤くなるため）
+- POSIX actual 一式は nativeMain に置き darwin と共通化する前提。inotify watcher と flock の関数結線
+  （cinterop 上の所在が Linux は platform.linux、Darwin は platform.posix）だけ linuxMain
+- 配送スレッドは pthread + mutex + 条件変数の自前キュー（Worker 非推奨方向の裁定どおり）。
+  Lock は pthread 再帰 mutex（JVM の ReentrantLock と同セマンティクス）。
+  Lock / 配送スレッドの mutex は解放しない（expect に close 概念がなく、プロセス寿命前提の数十バイト残留を許容）
+- FileInterProcessLock は flock(2)。JVM の fcntl レコードロックとロック族が異なるが、
+  Native と JVM のプロセスが同じストアを共有する構成は存在しないため相互運用の問題なし
+- Crc32 はテーブル駆動の純 Kotlin 実装（java.util.zip.CRC32 と同一パラメータ、標準チェック値のテストを commonTest に配置）
+- linuxX64Test 66 件全緑（common テスト 32 + native/linux 単体・スモーク 34。
+  Daybook.open のフルスタックスモーク〔POSIX 経路のジャーナルリプレイ・レジストリリセット後の再オープン永続化〕を含む）。
+  JVM 側は全モジュールビルド緑 + core / :daybook line/branch 100% 維持
+- サポートライン宣言（stdlib 2.0.0）の共通メタデータを 2.3 系メタデータコンパイラが読めないため、
+  compile*KotlinMetadata の解決だけ KGP と同版の stdlib に dependencySubstitution で差し替え
+  （ターゲットのコンパイルと公開 POM はサポートライン宣言のまま。daybook-core/build.gradle.kts に理由コメント）
+- WSL 環境の nix ビルド OpenJDK 17 では linkDebugTest* が JNI（libffi closure 解放）で SIGSEGV する。
+  worktree ローカルの .gradle-home/gradle.properties で daemon JVM を Adoptium JDK 19 に切り替えて回避
+  （リポジトリ設定には入れない。詳細は NOTES.local.md 環境メモ）
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
