@@ -266,6 +266,7 @@ Android は SharedPreferencesMigrationSource（:daybook）、Apple は NSUserDef
 数値カバレッジは「計測ツールが存在するレーン」の和で出す。例外設定（除外）は可能な限り置かず、計測されない事実は数値に出す方を選ぶ:
 
 - 計測レーンは 2 系統: JVM ユニットテスト（kover）+ Android instrumented テスト（AGP の JaCoCo、エミュレータレーン）。バッジは両系統の XML をライン単位でユニオンマージして算出する（.github/scripts/coverage_badge.py — 同じクラスが両レーンに現れるため合算ではなくユニオン）
+- 分母（実行可能行の集合）は kover 側から作り、JaCoCo は被覆の証拠としてだけ合流させる: JaCoCo は閉じ括弧・シグネチャ行などコンパイラ合成の行を実行可能行に数えるため、分母に混ぜると未テストコードが無いのに数値が下がる（2026-08-16 実測。命令ゼロの行も同様に分母から外す）
 - kover の除外は置かない: JVM で実行できないクラス（OsDirectorySync・FileObserverJournalWatcherFactory 等）はエミュレータレーンの計測が数値に入れる
 - Kotlin/Native にはカバレッジツールが存在せず、native の actual は数値化できない。実行検証レーンで担保する:
   - nativeMain（POSIX 共通 actual）: linuxX64Test（test.yml の native-linux-test）+ iosSimulatorArm64Test

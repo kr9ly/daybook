@@ -148,7 +148,7 @@ jobs:
             daybook-coroutines/build/reports/kover/report.xml \
             daybook-test/build/reports/kover/report.xml \
             daybook-multiplatform-settings/build/reports/kover/report.xml \
-            daybook/build/reports/coverage/androidTest/debug/connected/report.xml \
+            evidence:daybook/build/reports/coverage/androidTest/debug/connected/report.xml \
             .github/badges/coverage.svg
 
       # マージ結果の内訳検証（% が動いたときの診断）用に、入力 XML 一式を常に残す

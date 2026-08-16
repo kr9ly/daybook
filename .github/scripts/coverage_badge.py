@@ -3,12 +3,16 @@
 
 入力は kover XML（JVM ユニットテストレーン）と AGP の JaCoCo XML（エミュレータの instrumented
 テストレーン）の混在を想定する。同じクラスが複数レーンのレポートに現れるため、counter の単純合算では
-二重カウントになる。(パッケージ, ソースファイル, 行番号) をキーにしたライン単位のユニオンで数える:
-いずれかのレーンで実行された行はカバー済み、分母は全レポートに現れた実行可能行の和集合。
+二重カウントになる。(パッケージ, ソースファイル, 行番号) をキーにしたライン単位のユニオンで数える。
+
+分母（実行可能行の集合）は通常引数のレポート（kover）だけから作る。`evidence:` プレフィックス付きの
+レポート（AGP の JaCoCo）は被覆の証拠としてだけ合流させ、分母には行を追加しない —
+JaCoCo は閉じ括弧やシグネチャ行などコンパイラ合成の行テーブルを実行可能行として数えるため、
+分母に入れると未テストコードが無いのに数値が下がる（2026-08-16 に実測。ci>0 の証拠は行単位で有効）。
 
 指標は LINE（行）: 一部の命令だけ実行された行もカバー済みと数える、一般に引用される標準的な定義。
 
-使い方: coverage_badge.py <report.xml>... <output.svg>
+使い方: coverage_badge.py <report.xml | evidence:report.xml>... <output.svg>
 """
 import sys
 import xml.etree.ElementTree as ET
@@ -48,12 +52,31 @@ def color(pct: float) -> str:
 def main() -> None:
     reports, out = sys.argv[1:-1], sys.argv[-1]
     lines: dict[tuple[str, str, str], bool] = {}
-    for path in reports:
+
+    def walk(path):
         for package in ET.parse(path).getroot().findall("package"):
             for sourcefile in package.findall("sourcefile"):
                 for line in sourcefile.findall("line"):
+                    # mi + ci = 0 は命令が帰属しない行（実行可能でない）— 分母に入れない
+                    missed = int(line.get("mi", "0"))
+                    covered = int(line.get("ci", "0"))
+                    if missed + covered == 0:
+                        continue
                     key = (package.get("name"), sourcefile.get("name"), line.get("nr"))
-                    lines[key] = lines.get(key, False) or int(line.get("ci", "0")) > 0
+                    yield key, covered > 0
+
+    # 1 周目: 分母を確定するレポート（kover）
+    for path in reports:
+        if not path.startswith("evidence:"):
+            for key, covered in walk(path):
+                lines[key] = lines.get(key, False) or covered
+    # 2 周目: 証拠のみのレポート（JaCoCo）— 既知の行への被覆マークだけ行う
+    for path in reports:
+        if path.startswith("evidence:"):
+            for key, covered in walk(path.removeprefix("evidence:")):
+                if covered and key in lines:
+                    lines[key] = True
+
     covered = sum(lines.values())
     total = len(lines)
     # 計測対象コードがまだ無い（スケルトン段階）でもバッジ生成を落とさない
