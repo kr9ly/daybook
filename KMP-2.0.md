@@ -380,8 +380,20 @@ expect/actual と素のインターフェースの使い分け:
 - 設計メモ: framework は dynamic 一択（ホストアプリとテストバンドルの両方がリンクするため、
   static だと Kotlin ランタイムの二重リンクでクラス重複）。スキーマ宣言は Swift 側では書けない
   （DaybookSchema の protected キーファクトリは ObjC export でサブクラスに渡らない）ため Kotlin 側 facade
-- 残: 実 2 プロセス共有（app extension / 第 2 アプリからの同一コンテナアクセス）はこのハーネスの
-  拡張で到達可能になったが未実施。multiProcess 保証の格上げ（実機検証）はリリース後送りのまま
+- 拡張（2026-08-16 同日、cd185be）: 実 2 プロセス共有の検証まで実施。
+  HelperApp（別 bundle ID・同一 App Group）+ 共有プローブ画面（launch environment 駆動）+
+  XCUITest（CrossProcessTests）で 2 プロセスを交互アクティブにし、同一コンテナ上のストアを突き合わせる:
+  ① コールドリード — Helper の書き込みを Main が別プロセスの open（ジャーナルリプレイ）で読む、
+  ② watcher キャッチアップ — Main の書き込みに、サスペンド復帰した Helper が
+  dispatch source watcher の差分リプレイで追いつく。CI 実測で両方向とも緑
+- 設計メモ（2 プロセステストの形）: iOS はフォアグラウンド 1 アプリで裏はサスペンドのため、
+  Android 実機テストのような「同時ライブ監視」は OS 上成立しない。
+  実需（extension が書く → 本体が復帰時に追いつく）と同型の交互アクティブ形でエンコードした。
+  app extension でなく第 2 アプリ方式を採ったのは、extension のオンデマンド起動の配線が重い一方、
+  検証対象（flock・vnode 監視・ジャーナルリプレイ）のカーネル面はプロセス分離として等価なため
+- 到達点の整理: これで multiProcess を含む全機能が「シミュレータで動作確認済み（実機のみ未検証）」になった。
+  保証の格上げ（multiProcess を保証範囲に入れる）は裁定どおり実機検証待ちのまま —
+  flock / vnode 監視はシミュレータ（macOS カーネル）と実機カーネルの乖離が出やすい領域のため
 
 ## 技術的コスト項目
 
