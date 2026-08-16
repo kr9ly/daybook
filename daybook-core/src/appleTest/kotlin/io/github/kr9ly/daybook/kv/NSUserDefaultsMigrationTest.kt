@@ -10,25 +10,31 @@ import kotlin.test.assertFalse
 
 /**
  * [NSUserDefaultsMigrationSource] の契約テスト（シミュレータで実 NSUserDefaults を使う）—
- * 期待型による NSNumber の曖昧性解消・モードの意味論・prewarming ガードの再試行・
- * 冪等マーカー。
+ * 全 7 型の写像・期待型による NSNumber の曖昧性解消（両方向）・named suite の集約・
+ * モードの意味論・prewarming ガードの再試行・冪等マーカー。
  */
 class NSUserDefaultsMigrationTest {
 
     private object Schema : DaybookSchema("ud-migration") {
         val flag = boolean("flag")
         val count = long("count")
+        val count32 = int("count32")
         val scale = double("scale")
+        val ratio = float("ratio")
         val label = string("label")
         val tags = stringSet("tags")
     }
 
     private val defaults = NSUserDefaults.standardUserDefaults
-    private val usedKeys = listOf("src_flag", "src_count", "src_scale", "src_label", "src_tags")
+    private val suiteName = "ud-migration-suite"
+    private val suiteDefaults = NSUserDefaults(suiteName = suiteName)
+    private val usedKeys =
+        listOf("src_flag", "src_count", "src_count32", "src_scale", "src_ratio", "src_label", "src_tags")
 
     @AfterTest
     fun tearDown() {
         usedKeys.forEach { defaults.removeObjectForKey(it) }
+        usedKeys.forEach { suiteDefaults.removeObjectForKey(it) }
         DaybookRegistry.resetForTesting()
     }
 
@@ -71,6 +77,38 @@ class NSUserDefaultsMigrationTest {
     }
 
     @Test
+    fun intAndFloat_mapWithExpectedTypes() {
+        defaults.setInteger(7L, forKey = "src_count32")
+        defaults.setFloat(1.5f, forKey = "src_ratio")
+
+        val daybook = open(
+            NSUserDefaultsMigrationSource {
+                migrate(UserDefaultsSuite.standard.int("src_count32"), into = Schema.count32)
+                migrate(UserDefaultsSuite.standard.float("src_ratio"), into = Schema.ratio)
+            },
+        )
+
+        assertEquals(7, daybook.getInt("count32", 0))
+        assertEquals(1.5f, daybook.getFloat("ratio", 0f))
+    }
+
+    @Test
+    fun namedSuite_aggregatesWithStandardInOneSource() {
+        defaults.setObject("from standard", forKey = "src_label")
+        suiteDefaults.setBool(true, forKey = "src_flag")
+
+        val daybook = open(
+            NSUserDefaultsMigrationSource {
+                migrate(UserDefaultsSuite.standard.string("src_label"), into = Schema.label)
+                migrate(UserDefaultsSuite.named(suiteName).boolean("src_flag"), into = Schema.flag)
+            },
+        )
+
+        assertEquals("from standard", daybook.getString("label", null))
+        assertEquals(true, daybook.getBoolean("flag", false))
+    }
+
+    @Test
     fun expectedType_disambiguatesNSNumber() {
         // NSUserDefaults は数値の宣言型を保存しない。期待型のアクセサで読むことを確認する
         defaults.setInteger(1L, forKey = "src_flag")
@@ -80,6 +118,36 @@ class NSUserDefaultsMigrationTest {
             },
         )
         assertEquals(true, daybook.getBoolean("flag", false))
+    }
+
+    @Test
+    fun expectedType_readsStoredBoolAsLong() {
+        // 逆方向の曖昧性: bool として保存された NSNumber を期待型 long で読む
+        defaults.setBool(true, forKey = "src_count")
+        val daybook = open(
+            NSUserDefaultsMigrationSource {
+                migrate(UserDefaultsSuite.standard.long("src_count"), into = Schema.count)
+            },
+        )
+        assertEquals(1L, daybook.getLong("count", 0))
+    }
+
+    @Test
+    fun stringSet_nonStringElement_isSkippedInLenient() {
+        defaults.setObject(listOf("a", 1L), forKey = "src_tags")
+        val skips = mutableListOf<UserDefaultsMigrationSkip>()
+
+        val daybook = open(
+            NSUserDefaultsMigrationSource(mode = MigrationMode.LENIENT) {
+                onSkipped = { skips += it }
+                migrate(UserDefaultsSuite.standard.stringSet("src_tags"), into = Schema.tags)
+            },
+        )
+
+        assertFalse(daybook.contains("tags"))
+        assertEquals(1, skips.size)
+        assertEquals("src_tags", skips.single().key)
+        assertEquals("string array", skips.single().expectedType)
     }
 
     @Test
