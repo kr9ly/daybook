@@ -16,6 +16,10 @@ on:
         description: "release-android（daybook / coroutines / test）を実行する"
         type: boolean
         default: true
+      tag_name:
+        description: "GitHub Release を作るタグ名（dispatch 時は ref がタグと限らないため明示する）"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -107,4 +111,5 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes
+          TAG_NAME: ${{ inputs.tag_name != '' && inputs.tag_name || github.ref_name }}
+        run: gh release create "$TAG_NAME" --generate-notes
