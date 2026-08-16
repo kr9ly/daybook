@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Kover の XML レポート（複数可）から行カバレッジを合算し、shields 風のバッジ SVG を書き出す。
+"""JaCoCo 形式の XML レポート（複数可）から行カバレッジを算出し、shields 風のバッジ SVG を書き出す。
+
+入力は kover XML（JVM ユニットテストレーン）と AGP の JaCoCo XML（エミュレータの instrumented
+テストレーン）の混在を想定する。同じクラスが複数レーンのレポートに現れるため、counter の単純合算では
+二重カウントになる。(パッケージ, ソースファイル, 行番号) をキーにしたライン単位のユニオンで数える:
+いずれかのレーンで実行された行はカバー済み、分母は全レポートに現れた実行可能行の和集合。
 
 指標は LINE（行）: 一部の命令だけ実行された行もカバー済みと数える、一般に引用される標準的な定義。
 
@@ -42,13 +47,15 @@ def color(pct: float) -> str:
 
 def main() -> None:
     reports, out = sys.argv[1:-1], sys.argv[-1]
-    missed = covered = 0
+    lines: dict[tuple[str, str, str], bool] = {}
     for path in reports:
-        for counter in ET.parse(path).getroot().findall("counter"):
-            if counter.get("type") == "LINE":
-                missed += int(counter.get("missed"))
-                covered += int(counter.get("covered"))
-    total = missed + covered
+        for package in ET.parse(path).getroot().findall("package"):
+            for sourcefile in package.findall("sourcefile"):
+                for line in sourcefile.findall("line"):
+                    key = (package.get("name"), sourcefile.get("name"), line.get("nr"))
+                    lines[key] = lines.get(key, False) or int(line.get("ci", "0")) > 0
+    covered = sum(lines.values())
+    total = len(lines)
     # 計測対象コードがまだ無い（スケルトン段階）でもバッジ生成を落とさない
     if total == 0:
         value, badge_color = "n/a", "#9f9f9f"  # lightgrey

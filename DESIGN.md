@@ -260,13 +260,25 @@ Android は SharedPreferencesMigrationSource（:daybook）、Apple は NSUserDef
 - テストインフラ（一時ディレクトリ・ファイル書き込み・スレッド起動等）は expect/actual で共通化
 - fsync 層をインターフェースで抽象化し、「sync 前にクラッシュ」「追記途中でクラッシュ」を任意のバイト位置で決定的に注入する
 - JVM 残留は WatchService と FileLock の JVM 固有契約のみ
-- カバレッジは daybook-core / :daybook / アダプタで line/branch 100% を維持する
+
+### カバレッジ計測の範囲
+
+数値カバレッジは「計測ツールが存在するレーン」の和で出す。例外設定（除外）は可能な限り置かず、計測されない事実は数値に出す方を選ぶ:
+
+- 計測レーンは 2 系統: JVM ユニットテスト（kover）+ Android instrumented テスト（AGP の JaCoCo、エミュレータレーン）。バッジは両系統の XML をライン単位でユニオンマージして算出する（.github/scripts/coverage_badge.py — 同じクラスが両レーンに現れるため合算ではなくユニオン）
+- kover の除外は置かない: JVM で実行できないクラス（OsDirectorySync・FileObserverJournalWatcherFactory 等）はエミュレータレーンの計測が数値に入れる
+- Kotlin/Native にはカバレッジツールが存在せず、native の actual は数値化できない。実行検証レーンで担保する:
+  - nativeMain（POSIX 共通 actual）: linuxX64Test（test.yml の native-linux-test）+ iosSimulatorArm64Test
+  - linuxMain（inotify watcher・POSIX シム）: linuxX64Test
+  - appleMain / iosMain（dispatch source watcher・F_FULLFSYNC・NSUserDefaults マイグレーション）: iosSimulatorArm64Test + iOS ホストアプリハーネス
+- Swift 側ハーネス（ios-harness/ と daybook-ios-harness）は検証専用の非公開資産で、計測・バッジの対象外
+- 目標水準: 計測可能なコードで line/branch 100% を維持する。除外で 100% を作ることはしない — 届かない場合は下がった数値をそのまま出す
 
 ### 手元ループと CI レーン
 
 - 手元（WSL）: JVM テスト + linuxX64Test。POSIX actual の大半（ファイル IO・flock・並行プリミティブ）は darwin と共通コードか僅差で、Linux レーンが Native の開発ループになる
-- GHA test.yml: JVM レーン（テスト + カバレッジ + lint）
-- GHA device-test.yml: 環境依存レーン。Android エミュレータの instrumented テストと、macOS ランナーの iosSimulatorArm64Test（シミュレータは macOS カーネル上で動き、POSIX・dispatch source の検証として実がある）
+- GHA test.yml: JVM レーン（テスト + カバレッジ + lint）+ native-linux-test（linuxX64Test の CI 回帰）
+- GHA device-test.yml: 環境依存レーン。Android エミュレータの instrumented テスト（JaCoCo 計測 + カバレッジバッジ生成もここ）、macOS ランナーの iosSimulatorArm64Test（シミュレータは macOS カーネル上で動き、POSIX・dispatch source の検証として実がある）、iOS ホストアプリハーネス（XCTest + XCUITest の実 2 プロセス共有）
 - appleMain のメタデータコンパイルは Linux ホストでも走るため、シンボル解決レベルの誤りは手元で検出できる
 
 ### Instrumentation テスト（結合点のみ）
@@ -279,7 +291,7 @@ Android は SharedPreferencesMigrationSource（:daybook）、Apple は NSUserDef
 
 - Android: 全機能を動作保証。実機回帰（instrumented 15 件）+ エミュレータ CI
 - JVM デスクトップ: 全機能を動作保証。java.util.prefs の不透明さ（Windows でレジストリに書く等）への代替
-- iOS: シングルプロセス利用（読み書き・永続化・リスナー・マイグレーション）を動作保証。multiProcess（App Group 経由の app extension とのストア共有）は実装はあるが保証なしで、実機検証・App Group スパイクを経てから格上げする。保証の裏付けはシミュレータ検証（GHA）まで
+- iOS: シングルプロセス利用（読み書き・永続化・リスナー・マイグレーション）を動作保証。multiProcess（App Group 経由の app extension とのストア共有）は、App Group コンテナ実パス上の実 2 プロセス共有までシミュレータで検証済み（Xcode ホストアプリハーネス）だが保証には入れず、実機検証を経てから格上げする（flock / vnode 監視はシミュレータ = macOS カーネルと実機カーネルの乖離が出やすい領域のため）。保証の裏付けはシミュレータ検証（GHA）まで
 - linuxX64: 検証専用でリリース対象外
 - JS / WasmJS: 非ゴール
 

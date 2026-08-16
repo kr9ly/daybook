@@ -54,27 +54,28 @@ jobs:
             daybook-test/build/reports/tests/
             daybook-multiplatform-settings/build/reports/tests/
 
-      # カバレッジバッジは外部サービスを使わず、main への push 時に SVG を生成してリポジトリにコミットする。
-      # 全モジュールの Kover XML から命令カバレッジを合算する
-      - name: Generate coverage badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          mkdir -p .github/badges
-          python3 .github/scripts/coverage_badge.py \
-            daybook/build/reports/kover/reportDebug.xml \
-            daybook-core/build/reports/kover/report.xml \
-            daybook-coroutines/build/reports/kover/report.xml \
-            daybook-test/build/reports/kover/report.xml \
-            daybook-multiplatform-settings/build/reports/kover/report.xml \
-            .github/badges/coverage.svg
+  # カバレッジバッジの生成は device-test.yml の android-emulator-test job に移設した
+  # （エミュレータレーンの JaCoCo XML とのユニオンマージが必要なため。裁定 2026-08-16）
 
-      - name: Commit coverage badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/badges
-          if ! git diff --cached --quiet; then
-            git commit -m "CI: カバレッジバッジ更新 [skip ci]"
-            git push
-          fi
+  # Native（Kotlin/Native）の Linux レーン: nativeMain / linuxMain の actual の CI 回帰。
+  # K/N にはカバレッジツールが存在しないため数値は出ない（実行検証のみ。DESIGN.md テスト戦略を参照）
+  native-linux-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Run linuxX64 tests
+        run: ./gradlew :daybook-core:linuxX64Test :daybook-multiplatform-settings:linuxX64Test

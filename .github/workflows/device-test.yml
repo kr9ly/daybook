@@ -12,8 +12,9 @@ on:
   # 回帰の手動再実行用（paths-filter を素通しして必ず実行する）
   workflow_dispatch:
 
+# contents: write はカバレッジバッジのコミット（android-emulator-test job、main push 時のみ）に使う
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # エミュレータ / シミュレータ job は遅い・高コストのため、関連パスの変更時だけ走らせる
@@ -107,7 +108,9 @@ jobs:
 
       # キル系 2 件（ProcessKillResilienceTest）は -Pdaybook.processKillTests の隔離スイート。
       # エミュレータで flaky になりがちなリトライ前提の設計（:daybook/build.gradle.kts）のため、
-      # 失敗時は 1 回だけ再試行する。通常スイートと同じエミュレータセッション内で 2 段 invocation する
+      # 失敗時は 1 回だけ再試行する。通常スイートと同じエミュレータセッション内で 2 段 invocation する。
+      # 通常スイートは createDebugAndroidTestCoverageReport 経由で実行し、JaCoCo XML を出す
+      # （バッジのユニオンマージに使う。キル系はプロセスキルでカバレッジデータが飛ぶため計測対象外）
       - name: Run instrumented tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -118,7 +121,7 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            ./gradlew :daybook:connectedDebugAndroidTest
+            ./gradlew :daybook:createDebugAndroidTestCoverageReport
             ./gradlew -Pdaybook.processKillTests :daybook:connectedDebugAndroidTest || ./gradlew -Pdaybook.processKillTests :daybook:connectedDebugAndroidTest
 
       - name: Upload test reports
@@ -127,6 +130,37 @@ jobs:
         with:
           name: android-emulator-test-reports
           path: daybook/build/reports/androidTests/
+
+      # カバレッジバッジ: JVM レーン（kover）+ エミュレータレーン（JaCoCo）をライン単位で
+      # ユニオンマージして生成する。エミュレータの XML が手に入るのがこの job だけのため、
+      # バッジ生成はここに置く（test.yml から移設。裁定 2026-08-16: 計測レーンの例外最小化）
+      # 生成は常時走らせてマージ結果の % をログに出す（JaCoCo XML のパス・マージの回帰検知）。
+      # リポジトリへのコミットだけ main push 時
+      - name: Generate JVM coverage reports
+        run: ./gradlew :daybook-core:koverXmlReport :daybook:koverXmlReportDebug :daybook-coroutines:koverXmlReport :daybook-test:koverXmlReport :daybook-multiplatform-settings:koverXmlReport
+
+      - name: Generate coverage badge
+        run: |
+          mkdir -p .github/badges
+          python3 .github/scripts/coverage_badge.py \
+            daybook/build/reports/kover/reportDebug.xml \
+            daybook-core/build/reports/kover/report.xml \
+            daybook-coroutines/build/reports/kover/report.xml \
+            daybook-test/build/reports/kover/report.xml \
+            daybook-multiplatform-settings/build/reports/kover/report.xml \
+            daybook/build/reports/coverage/androidTest/debug/connected/report.xml \
+            .github/badges/coverage.svg
+
+      - name: Commit coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/badges
+          if ! git diff --cached --quiet; then
+            git commit -m "CI: カバレッジバッジ更新 [skip ci]"
+            git push
+          fi
 
   # iOS の保証はシミュレータ検証まで（KMP-2.0.md 裁定 2026-08-15）。
   # Apple 向けコンパイルは macOS ホストでしかできないため、このジョブが iOS レーンの唯一の検証点。

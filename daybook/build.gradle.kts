@@ -29,6 +29,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+    buildTypes {
+        debug {
+            // instrumented テスト（エミュレータレーン）のカバレッジを JaCoCo で計測する。
+            // JVM ユニットテストで実行できない Android ランタイム依存クラス
+            // （OsDirectorySync / FileObserverJournalWatcherFactory 等）もカバレッジ数値に
+            // 入れるため（計測レーンの例外を最小化する裁定 2026-08-16）。
+            // バッジは kover XML とこの JaCoCo XML をライン単位でユニオンマージする
+            enableAndroidTestCoverage = true
+        }
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -52,23 +63,9 @@ kotlin {
     }
 }
 
-kover {
-    reports {
-        filters {
-            excludes {
-                // android.system.Os は Android ランタイム専用で JVM ユニットテストから実行できない。
-                // androidTest の OsDirectorySyncTest（connectedAndroidTest）で実機検証している
-                classes(
-                    "io.github.kr9ly.daybook.journal.OsDirectorySync",
-                    "io.github.kr9ly.daybook.journal.AndroidDirectorySyncKt",
-                )
-                // FileObserver（inotify）は JVM / Robolectric で動かない。
-                // androidTest の FileObserverJournalWatcherTest で実機検証する
-                classes("io.github.kr9ly.daybook.journal.FileObserverJournalWatcherFactory*")
-            }
-        }
-    }
-}
+// kover の除外は置かない: JVM ユニットテストで実行できないクラス
+// （OsDirectorySync / FileObserverJournalWatcherFactory 等）は、エミュレータレーンの
+// JaCoCo カバレッジ（enableAndroidTestCoverage）が計測し、バッジ側でユニオンマージされる
 
 mavenPublishing {
     publishToMavenCentral()
