@@ -2,8 +2,7 @@ name: test
 
 on:
   push:
-    # v2 は 2.0 KMP 作業ブランチ（main マージ時に外す）
-    branches: [main, v2]
+    branches: [main]
   pull_request:
 
 permissions:

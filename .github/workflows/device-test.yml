@@ -6,8 +6,7 @@ name: device-test
 
 on:
   push:
-    # v2 は 2.0 KMP 作業ブランチ（main マージ時に外す）
-    branches: [main, v2]
+    branches: [main]
   pull_request:
   # 回帰の手動再実行用（paths-filter を素通しして必ず実行する）
   workflow_dispatch:
