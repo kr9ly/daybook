@@ -151,6 +151,19 @@ jobs:
             daybook/build/reports/coverage/androidTest/debug/connected/report.xml \
             .github/badges/coverage.svg
 
+      # マージ結果の内訳検証（% が動いたときの診断）用に、入力 XML 一式を常に残す
+      - name: Upload coverage XMLs
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-reports
+          path: |
+            daybook/build/reports/coverage/androidTest/debug/connected/report.xml
+            daybook/build/reports/kover/reportDebug.xml
+            daybook-core/build/reports/kover/report.xml
+            daybook-coroutines/build/reports/kover/report.xml
+            daybook-test/build/reports/kover/report.xml
+            daybook-multiplatform-settings/build/reports/kover/report.xml
+
       - name: Commit coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
