@@ -1,5 +1,6 @@
 package io.github.kr9ly.daybook.kv
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDefaults
 import kotlin.random.Random
@@ -17,6 +18,7 @@ import kotlin.test.assertNotNull
  * iOS 実機カーネルでの flock / vnode 監視の挙動はここでは検証できない
  * （multiProcess の保証格上げは実機検証後 — KMP-2.0.md の据え置き裁定）。
  */
+@OptIn(ExperimentalForeignApi::class)
 class AppGroupContainerTest {
 
     private object Schema : DaybookSchema("app-group") {
