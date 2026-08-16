@@ -3,6 +3,19 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # 部分失敗のリカバリ用: 公開済みモジュールの job を外して再実行する
+  # （Central は同一バージョンの再アップロードを拒否するため、全 job 再実行では復旧できない）。
+  # タグ ref を指定して dispatch すること（github-release がタグ名を使う）
+  workflow_dispatch:
+    inputs:
+      publish_kmp:
+        description: "release-kmp（core / settings）を実行する"
+        type: boolean
+        default: true
+      publish_android:
+        description: "release-android（daybook / coroutines / test）を実行する"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -13,6 +26,10 @@ jobs:
   # 先に publish してから走らせる
   release-android:
     needs: [release-kmp]
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'push' || inputs.publish_android) &&
+      (needs.release-kmp.result == 'success' || needs.release-kmp.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +42,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: ./gradlew :daybook:testDebugUnitTest :daybook-coroutines:testDebugUnitTest :daybook-test:testDebugUnitTest
+        run: ./gradlew :daybook:testDebugUnitTest :daybook-coroutines:jvmTest :daybook-coroutines:testAndroidHostTest :daybook-test:jvmTest :daybook-test:testAndroidHostTest
 
       # Central Portal へのアップロードと公開承認まで自動で行う（タグ push で完結）
       - name: Publish to Maven Central
@@ -44,6 +61,7 @@ jobs:
   # ビルドに macOS ホストが必要なため、別 job で publish する。
   # linuxX64 は検証用ターゲットで publication から除外済み（build.gradle.kts 側の onlyIf）
   release-kmp:
+    if: github.event_name == 'push' || inputs.publish_kmp
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +96,10 @@ jobs:
   # GitHub Release は全モジュールの publish が通ってから作る
   github-release:
     needs: [release-android, release-kmp]
+    if: >-
+      !cancelled() &&
+      needs.release-android.result == 'success' &&
+      (needs.release-kmp.result == 'success' || needs.release-kmp.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
