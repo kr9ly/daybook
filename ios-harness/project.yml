@@ -24,9 +24,28 @@ targets:
     platform: iOS
     sources:
       - HarnessApp
+      - Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.kr9ly.daybook.harness
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: HarnessApp/HarnessApp.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - framework: ../daybook-ios-harness/build/bin/iosSimulatorArm64/debugFramework/DaybookHarnessKit.framework
+        embed: true
+        codeSign: true
+  # 実 2 プロセス共有検証（CrossProcessTests）の第 2 プロセス。
+  # HarnessApp と同一の App Group entitlement を共有する
+  HelperApp:
+    type: application
+    platform: iOS
+    sources:
+      - HelperApp
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kr9ly.daybook.harness.helper
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: HarnessApp/HarnessApp.entitlements
         TARGETED_DEVICE_FAMILY: "1"
@@ -48,12 +67,30 @@ targets:
       # dynamic framework をリンクだけする（実体はホストアプリの Frameworks/ から解決）
       - framework: ../daybook-ios-harness/build/bin/iosSimulatorArm64/debugFramework/DaybookHarnessKit.framework
         embed: false
+  # 実 2 プロセス共有の XCUITest。ストア操作はアプリ側（StoreProbeView）にあり、
+  # このバンドル自体は framework をリンクしない。
+  # 両アプリを依存に持つことで xcodebuild test 時にシミュレータへインストールされる
+  HarnessUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - HarnessUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: HarnessApp
+    dependencies:
+      - target: HarnessApp
+      - target: HelperApp
 schemes:
   DaybookHarness:
     build:
       targets:
         HarnessApp: all
+        HelperApp: all
         HarnessTests: [test]
+        HarnessUITests: [test]
     test:
       targets:
         - HarnessTests
+        - HarnessUITests
