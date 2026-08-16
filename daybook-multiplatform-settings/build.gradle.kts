@@ -112,12 +112,12 @@ mavenPublishing {
         signAllPublications()
     }
 
-    coordinates("io.github.kr9ly", "daybook-multiplatform-settings", "1.0.0")
+    coordinates("io.github.kr9ly", "daybook-multiplatform-settings", "2.0.0")
 
     pom {
         name.set("daybook-multiplatform-settings")
         description.set(
-            "multiplatform-settings adapter for daybook — Settings, ObservableSettings and FlowSettings faces over the daybook engine.",
+            "multiplatform-settings adapter for daybook — Settings, ObservableSettings and FlowSettings APIs over the daybook engine.",
         )
         url.set("https://github.com/kr9ly/daybook")
         licenses {
@@ -138,4 +138,9 @@ mavenPublishing {
             developerConnection.set("scm:git:ssh://git@github.com/kr9ly/daybook.git")
         }
     }
+}
+
+// linuxX64 はリリース対象ではなく検証用ターゲットのため publication から除外する（裁定 2026-08-16）
+tasks.withType<org.gradle.api.publish.maven.tasks.AbstractPublishToMaven>().configureEach {
+    onlyIf { publication.name != "linuxX64" }
 }

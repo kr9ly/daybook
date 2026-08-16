@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kover)
+    alias(libs.plugins.maven.publish)
 }
 
 kotlin {
@@ -65,6 +66,46 @@ kotlin {
             }
         }
     }
+}
+
+mavenPublishing {
+    publishToMavenCentral()
+    // 署名鍵が渡されたときだけ署名する（publishToMavenLocal でのローカル検証を素通しにするため）
+    if (providers.gradleProperty("signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
+
+    coordinates("io.github.kr9ly", "daybook-core", "2.0.0")
+
+    pom {
+        name.set("daybook-core")
+        description.set(
+            "Kotlin Multiplatform journal engine and typed key-value API for daybook — append-only journal with an in-memory cache.",
+        )
+        url.set("https://github.com/kr9ly/daybook")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("kr9ly")
+                name.set("kr9ly")
+            }
+        }
+        scm {
+            url.set("https://github.com/kr9ly/daybook")
+            connection.set("scm:git:git://github.com/kr9ly/daybook.git")
+            developerConnection.set("scm:git:ssh://git@github.com/kr9ly/daybook.git")
+        }
+    }
+}
+
+// linuxX64 はリリース対象ではなく検証用ターゲットのため publication から除外する（裁定 2026-08-16）
+tasks.withType<org.gradle.api.publish.maven.tasks.AbstractPublishToMaven>().configureEach {
+    onlyIf { publication.name != "linuxX64" }
 }
 
 // K/N のテストタスクは既定では件数をログに出さず、CI で「0 件で緑」を見分けられない。

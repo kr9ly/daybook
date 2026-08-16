@@ -8,7 +8,11 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # Android アダプタ系（jvm + android ターゲットのみ）は ubuntu で publish する。
+  # :daybook の POM が :daybook-core の座標を参照するため、依存元の core（release-kmp）を
+  # 先に publish してから走らせる
+  release-android:
+    needs: [release-kmp]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +39,48 @@ jobs:
           :daybook:publishAndReleaseToMavenCentral
           :daybook-coroutines:publishAndReleaseToMavenCentral
           :daybook-test:publishAndReleaseToMavenCentral
+
+  # KMP モジュール（iOS ターゲットを含む core / settings アダプタ）は Apple 向け klib の
+  # ビルドに macOS ホストが必要なため、別 job で publish する。
+  # linuxX64 は検証用ターゲットで publication から除外済み（build.gradle.kts 側の onlyIf）
+  release-kmp:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Run unit tests
+        run: ./gradlew :daybook-core:jvmTest :daybook-core:iosSimulatorArm64Test :daybook-multiplatform-settings:jvmTest :daybook-multiplatform-settings:iosSimulatorArm64Test
+
+      - name: Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: >
+          ./gradlew
+          :daybook-core:publishAndReleaseToMavenCentral
+          :daybook-multiplatform-settings:publishAndReleaseToMavenCentral
+
+  # GitHub Release は全モジュールの publish が通ってから作る
+  github-release:
+    needs: [release-android, release-kmp]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Create GitHub Release
         env:
