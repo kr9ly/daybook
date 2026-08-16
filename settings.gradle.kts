@@ -20,3 +20,5 @@ include(":daybook")
 include(":daybook-coroutines")
 include(":daybook-multiplatform-settings")
 include(":daybook-test")
+// iOS テストハーネス用の非公開モジュール（ios-harness/ の Xcode ホストアプリが使う framework）
+include(":daybook-ios-harness")

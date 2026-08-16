@@ -1,0 +1,59 @@
+# Xcode ホストアプリハーネスの XcodeGen 定義。
+# .xcodeproj はリポジトリ管理せず、CI（device-test.yml の ios-host-app-test）で
+# `xcodegen generate` してから xcodebuild test を回す。
+#
+# 目的: K/N の Gradle テスト（simctl spawn、app bundle なし）では検証できない
+# App Group コンテナの実パス解決（containerURLForSecurityApplicationGroupIdentifier）と、
+# コンテナ実パス上のストア動作を、app identity のあるホストアプリ + XCTest で常時検証する。
+#
+# 前提: ../daybook-ios-harness の framework を先に Gradle でビルドしておくこと
+#   ./gradlew :daybook-ios-harness:linkDebugFrameworkIosSimulatorArm64
+name: DaybookHarness
+options:
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # シミュレータ専用ハーネス。ad-hoc 署名でも simulator は entitlements を尊重する
+    CODE_SIGN_IDENTITY: "-"
+    ONLY_ACTIVE_ARCH: YES
+targets:
+  HarnessApp:
+    type: application
+    platform: iOS
+    sources:
+      - HarnessApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kr9ly.daybook.harness
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: HarnessApp/HarnessApp.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - framework: ../daybook-ios-harness/build/bin/iosSimulatorArm64/debugFramework/DaybookHarnessKit.framework
+        embed: true
+        codeSign: true
+  HarnessTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - HarnessTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      # TEST_HOST / BUNDLE_LOADER は XcodeGen がこの app 依存から自動設定する
+      - target: HarnessApp
+      # dynamic framework をリンクだけする（実体はホストアプリの Frameworks/ から解決）
+      - framework: ../daybook-ios-harness/build/bin/iosSimulatorArm64/debugFramework/DaybookHarnessKit.framework
+        embed: false
+schemes:
+  DaybookHarness:
+    build:
+      targets:
+        HarnessApp: all
+        HarnessTests: [test]
+    test:
+      targets:
+        - HarnessTests

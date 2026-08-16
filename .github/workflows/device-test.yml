@@ -22,6 +22,7 @@ jobs:
     outputs:
       android: ${{ steps.filter.outputs.android }}
       ios: ${{ steps.filter.outputs.ios }}
+      iosHarness: ${{ steps.filter.outputs.iosHarness }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +47,15 @@ jobs:
             ios:
               - 'daybook-core/**'
               - 'daybook-multiplatform-settings/**'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle.properties'
+              - 'gradle/**'
+              - '.github/workflows/device-test.yml'
+            iosHarness:
+              - 'daybook-core/**'
+              - 'daybook-ios-harness/**'
+              - 'ios-harness/**'
               - 'build.gradle.kts'
               - 'settings.gradle.kts'
               - 'gradle.properties'
@@ -157,3 +167,53 @@ jobs:
           path: |
             daybook-core/build/reports/tests/
             daybook-multiplatform-settings/build/reports/tests/
+
+  # Xcode ホストアプリハーネス: App Group コンテナの実パス解決とコンテナ上のストア動作の検証。
+  # K/N の Gradle テスト（simctl spawn、app bundle なし）では containerURL が null になるため、
+  # app identity のあるホストアプリ + XCTest でだけ成立するレーン（実測 2026-08-16）。
+  # Xcode プロジェクトはリポジトリ管理せず XcodeGen（ios-harness/project.yml）で生成する
+  ios-host-app-test:
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.iosHarness == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
+      - name: Build harness framework
+        run: ./gradlew :daybook-ios-harness:linkDebugFrameworkIosSimulatorArm64
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec ios-harness/project.yml --project ios-harness
+
+      # シミュレータのデバイス名は Xcode バージョンで変わるため、利用可能な iPhone を動的に選ぶ
+      - name: Run host app tests
+        run: |
+          DEVICE=$(xcrun simctl list devices available | sed -n 's/^ *\(iPhone [^(]*\)(.*/\1/p' | head -1 | sed 's/ *$//')
+          echo "Using simulator: $DEVICE"
+          xcodebuild test \
+            -project ios-harness/DaybookHarness.xcodeproj \
+            -scheme DaybookHarness \
+            -destination "platform=iOS Simulator,name=$DEVICE"
+
+      - name: Upload xcodebuild results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-host-app-test-results
+          path: ~/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
