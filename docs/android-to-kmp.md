@@ -67,7 +67,7 @@ repository.fontScalePref.asFlow()   // daybook-coroutines（common）
 
 ### 両 API 併走中の注意
 
-- リスナーの非対称性: 共通 API のリスナーには SharedPreferences 互換 API 経由の編集も届くが、SharedPreferences のリスナー（OnSharedPreferenceChangeListener）に届くのは SharedPreferences の Editor 経由の編集だけ（フレームワークのリスナー契約の再現）。プロセス内の全変更を観測したい側は共通 API のリスナー / Flow を使う
+- リスナーの非対称性: 共通 API のリスナーにはストアへのあらゆる書き込み経路（SharedPreferences 互換 API の Editor 経由の編集・明示/透過の import・マイグレーション取り込み）が届くが、SharedPreferences のリスナー（OnSharedPreferenceChangeListener）に届くのは SharedPreferences の Editor 経由の編集だけ（フレームワークのリスナー契約の再現）。プロセス内の全変更を観測したい側は共通 API のリスナー / Flow を使う
 - 通知の意味論差: SharedPreferences 互換 API は実効変更のみ通知（同値 put は無通知）、共通 API は操作ベース通知（同値 put も届く）。それぞれの API がそれぞれのエコシステム契約を再現している
 - durability: SharedPreferences 互換 API は常に既定（ASYNC）で開く。両 API で使う名前を SYNC で開くことはできない（不一致で IllegalArgumentException）
 - edit の意味論: 共通 API の edit は呼び出し順どおり適用（SharedPreferences 互換 API の Editor は AOSP と同じく clear を先頭に並べ替える）。IO 失敗は共通 API では IOException、SharedPreferences 互換 API では commit() == false / apply 破棄

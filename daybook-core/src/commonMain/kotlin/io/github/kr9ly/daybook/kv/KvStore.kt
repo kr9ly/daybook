@@ -169,10 +169,15 @@ public class KvStore private constructor(
         }
     }
 
-    /** 変更リスナーを登録する。強参照で保持し、[removeListener] まで解放しない。 */
+    /**
+     * 変更リスナーを登録する。強参照で保持し、[removeListener] まで解放しない。
+     * 登録済みのリスナーを重ねて登録しても 1 登録のまま（[removeListener] 1 回で完全に解除）。
+     */
     public fun addListener(listener: DaybookChangeListener) {
         listenersLock.withLock {
-            listeners = listeners + listener
+            if (listener !in listeners) {
+                listeners = listeners + listener
+            }
         }
     }
 

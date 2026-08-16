@@ -184,7 +184,9 @@ asFlow は状態の観測、changesAsFlow は操作の観測という使い分�
 
 ```kotlin
 val settings: ObservableSettings = DaybookSettings(daybook)
-val flowSettings: FlowSettings = DaybookFlowSettings(daybook)   // @ExperimentalSettingsApi
+
+@OptIn(ExperimentalSettingsApi::class)   // FlowSettings は multiplatform-settings 側で実験的 API
+val flowSettings: FlowSettings = DaybookFlowSettings(daybook)
 ```
 
 - 生成箇所の 1 行差し替えで導入でき、やめるときも無傷で戻れる（ネイティブ実装と同じ「コンストラクタに委譲先を渡す」形）
@@ -235,6 +237,7 @@ val daybook = Daybook.open(directory, Settings) {
 ```
 
 - 実行はストアの初回オープン時に一度だけ（冪等）。完了はストアディレクトリ内のサイドカーマーカーで記録され、再実行しても二重にならない
+- 複数ソースはリスト順に実行され、同じ宛先キーへは後のソースが上書きする（リスト順 = 優先順位）
 - 適用はリプレイ後・open が返る前に 1 バッチでアトミックに書かれる。取り込みはユーザー編集より必ず先に走る
 - ソースの実装はライブラリ提供: SharedPreferencesMigrationSource（Android、io.github.kr9ly:daybook）、NSUserDefaultsMigrationSource（Apple、daybook-core）、MigrationSource.daybook1xJournal()（1.x ジャーナル）
 - 宣言 DSL の使い方とモード（STRICT / LENIENT）の運用は [ios-android-to-kmp.md](./ios-android-to-kmp.md) を参照

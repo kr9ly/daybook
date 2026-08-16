@@ -155,6 +155,8 @@ public class SharedPreferencesMigrationBuilder internal constructor() {
     /**
      * [MigrationMode.LENIENT] でエントリがスキップされたときに呼ばれる。既定は何もしない。
      * [MigrationMode.STRICT] では呼ばれない（例外で落ちる）。
+     * コールバックが投げた例外はラップされず、そのまま open から伝播する
+     * （マイグレーションは失敗扱いになり、マーカーは作られない）。
      */
     public var onSkipped: (SharedPreferencesMigrationSkip) -> Unit = {}
 

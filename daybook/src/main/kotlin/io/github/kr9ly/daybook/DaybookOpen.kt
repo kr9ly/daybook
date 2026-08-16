@@ -20,7 +20,8 @@ import io.github.kr9ly.daybook.kv.MigrationSource
  *
  * 同じ名前（[DaybookSchema] の宣言名）を [getDaybookSharedPreferences] で開くと、裏のストアは
  * 同一になる: どちらの API からの編集ももう一方の API の読み出しに即座に見え、
- * こちらの変更リスナーには SharedPreferences 互換 API 経由の編集も届く。逆は非対称で、
+ * こちらの変更リスナーにはこのストアへのあらゆる書き込み経路（SharedPreferences 互換 API の
+ * Editor 経由の編集・明示/透過の import・マイグレーション取り込み）が届く。逆は非対称で、
  * SharedPreferences のリスナーに届くのはあちらの Editor 経由の編集だけ。SharedPreferences 互換 API の
  * durability は常に既定（ASYNC）なので、両 API で使う名前を SYNC で開くことはできない
  * （不一致で例外）。デフォルトの SharedPreferences（`getDefaultDaybookSharedPreferences`）と

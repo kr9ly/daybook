@@ -31,6 +31,9 @@ import kotlin.concurrent.Volatile
  * リスナーの型不一致だけは例外にできない（配送は store の共有スレッド上のため）:
  * リスナー登録時に格納値の型が合わなければ登録の時点で ClassCastException、
  * 登録後にキーへ期待と異なる型が書かれた場合、その値の通知は配送されない。
+ *
+ * リスナーコールバックが投げた例外は隔離される（同じ理由で伝播先がないため握りつぶす）:
+ * 他のリスナーへの配送や書き込み元には影響せず、そのリスナーの以後の通知も継続する。
  */
 public class DaybookSettings(private val daybook: Daybook) : ObservableSettings {
 
@@ -186,7 +189,13 @@ private class DedupingKeyListener(
         if (key != watchedKey) return
         if (newValue == previous) return
         previous = newValue
-        deliverRaw(newValue)
+        try {
+            deliverRaw(newValue)
+        } catch (_: Exception) {
+            // コールバックの例外は隔離する: 配送は store の共有スレッド上のため、伝播させると
+            // 他のリスナーへの配送や書き込み元を道連れにする。前値の更新は済んでいるので
+            // 以後のデデュープ判定は壊れない
+        }
     }
 }
 

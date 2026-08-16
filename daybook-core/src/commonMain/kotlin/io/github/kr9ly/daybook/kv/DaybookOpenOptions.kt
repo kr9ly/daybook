@@ -29,7 +29,12 @@ public class DaybookOpenOptions internal constructor() {
      * 実行契約（冪等マーカー・実行位置・失敗時の挙動）は [MigrationSource] を参照。
      * multiProcess と違い再取得時の一致は要求されない: 生成時の挙動だけを表し、
      * キャッシュヒット時は黙って無視される（1.x の import フラグと同じ意味論）。
-     * 同じ [MigrationSource.id] を重複指定した場合は最初の 1 つだけが実行される。
+     * 同じ [MigrationSource.id] を重複指定した場合は最初の 1 つだけが実行される
+     * （判定は id 文字列のみで、実装クラスは見ない）。
+     *
+     * ソースはリスト順に実行される。複数のソースが同じ宛先キーへ書く場合は
+     * 後のソースが上書きする（リスト順 = 優先順位。1 ソース内の同一宛先への
+     * 重複宣言が即例外になるのとは異なり、ソース間の重なりは許容される）。
      *
      * 1.x からのアップグレードには [MigrationSource.Companion.daybook1xJournal] を指定する
      * （Android の :daybook の入口は自動で含めるため指定不要）。

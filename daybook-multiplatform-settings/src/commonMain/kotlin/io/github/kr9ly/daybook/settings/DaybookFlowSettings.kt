@@ -21,7 +21,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * 各 `getXxxFlow` は collect 時に現在値を発火し、以後は値が変わるたびに発火する
  * （キー削除・clear はデフォルト値ないし null として届く）。値は conflate される —
  * 遅い collector は中間の書き込みでなく最新状態を見る — うえ、連続する同値は落とされる
- * （[distinctUntilChanged]）。
+ * （[distinctUntilChanged]）。conflate の性質上、溜まっていない最初の 1 発火は
+ * そのまま downstream に届くため、遅い collector が「最新状態しか見ない」のは
+ * 2 発火目以降（例: 未受信のまま 1→2→3 と書くと 1 と 3 を観測しうる）。
+ *
+ * string-set が格納されたキーへの型付き Flow の ClassCastException は Flow の
+ * collect 時（初期値の読み取り）に投げられる。collect と同じコルーチンでは同期的に
+ * 捕捉できるが、produceIn 等で collect を別コルーチンへ移すと例外もそちらで発生する。
  */
 @ExperimentalSettingsApi
 public class DaybookFlowSettings(daybook: Daybook) : FlowSettings {

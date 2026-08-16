@@ -42,6 +42,8 @@ public interface MigrationSource {
      *   作られないため、次のストア生成時に再試行される
      *
      * 値の型はストアの対応型（String/StringSet/Int/Long/Float/Double/Boolean）に限る。
+     * ただしスキーマ宣言の論理型との照合は行われない: 宣言と異なる対応型を書き込んだ場合、
+     * 破綻は後続の型付き読み出し（ClassCastException）まで遅延する。
      */
     public fun read(environment: MigrationEnvironment): Map<String, Any>?
 
@@ -67,8 +69,10 @@ public interface MigrationSource {
  * 宛先キーを [DaybookKey] で宣言する型付きマイグレーションソースが実装する追加契約。
  *
  * スキーマ付きの open は、この契約を実装するソースの [targets] が開こうとしているスキーマに
- * 属するかを検査する（属さないキーへの取り込みは宣言ミスとして即例外）。任意実装の
- * [MigrationSource] には課されない。
+ * 属するかを検査する（属さないキーへの取り込みは宣言ミスとして即例外）。検査は宣言だけを見て
+ * [MigrationSource.read] の実行やその結果とは独立に行われる。任意実装の
+ * [MigrationSource] には課されない。また [targets] は検査対象の宣言であって取り込み内容の
+ * 制約ではない: 実際に書かれるキーが [targets] と一致するかは検証されない。
  */
 @io.github.kr9ly.daybook.internal.DaybookInternalApi
 public interface SchemaTargetedMigrationSource : MigrationSource {

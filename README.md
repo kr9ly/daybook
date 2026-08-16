@@ -117,8 +117,13 @@ daybook.edit {
 }
 
 // 観測
-daybook.property(Settings.darkMode, default = false).asFlow()   // Flow<Boolean>（daybook-coroutines）
 daybook.addChangeListener { key, newValue -> /* ... */ }
+```
+
+Flow で観測する場合（daybook-coroutines が必要）:
+
+```kotlin
+daybook.property(Settings.darkMode, default = false).asFlow()   // Flow<Boolean>
 ```
 
 Android で SharedPreferences をそのまま置き換える場合:

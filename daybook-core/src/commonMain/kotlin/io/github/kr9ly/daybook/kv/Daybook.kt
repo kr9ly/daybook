@@ -70,6 +70,8 @@ public interface Daybook {
     /**
      * 設定されている全キーのスナップショット。取得時点の状態で固定され、以後の書き込みの
      * 影響を受けない。読み出しはインメモリキャッシュからで、ディスク IO はない。
+     * 返るセットは読み取り専用として扱うこと（変更してもストアには反映されず、
+     * 変更操作自体が例外になることがある）。
      */
     public val keys: Set<String>
 
@@ -81,15 +83,20 @@ public interface Daybook {
      * 途中状態は見えない。何も操作しないブロックは何も書かない。
      *
      * ブロックに渡る [DaybookEditor] はブロック内でだけ有効で、単一スレッドで使う。
-     * 値の型検査はブロック完了時に行われ、違反は IllegalArgumentException。
+     * 値の制約は [DaybookEditor] の型付き put シグネチャで表現されており、
+     * それ以外の型は公開 API からは書けない。
      * ディスク書き込みの失敗は IOException として伝播する。
      */
     public fun edit(block: DaybookEditor.() -> Unit)
 
-    /** 変更リスナーを登録する。強参照で保持し、[removeChangeListener] まで解放しない。 */
+    /**
+     * 変更リスナーを登録する。強参照で保持し、[removeChangeListener] まで解放しない。
+     * 登録済みのリスナーを重ねて登録しても 1 登録のまま
+     * （SharedPreferences のリスナーと同じ Set 意味論。[removeChangeListener] 1 回で完全に解除）。
+     */
     public fun addChangeListener(listener: DaybookChangeListener)
 
-    /** 変更リスナーを解除する。 */
+    /** 変更リスナーを解除する。登録されていないリスナーの解除は何もしない。 */
     public fun removeChangeListener(listener: DaybookChangeListener)
 
     public companion object {
@@ -162,10 +169,10 @@ public interface DaybookEditor {
     /** [key] へ long を設定する。 */
     public fun putLong(key: String, value: Long)
 
-    /** [key] へ float を設定する。 */
+    /** [key] へ float を設定する。NaN・±Infinity を含む全ビットパターンをそのまま保存する。 */
     public fun putFloat(key: String, value: Float)
 
-    /** [key] へ double を設定する。 */
+    /** [key] へ double を設定する。NaN・±Infinity を含む全ビットパターンをそのまま保存する。 */
     public fun putDouble(key: String, value: Double)
 
     /** [key] へ boolean を設定する。 */

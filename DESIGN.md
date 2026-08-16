@@ -116,7 +116,7 @@ core の型集合は全 API の和集合の 7 型: String / Set\<String\> / Int 
 素の Daybook.open と違い、multiProcess の変更検知に FileObserver（inotify）、ディレクトリ fsync に android.system.Os を結線する。
 
 - ストアの入手経路は core の DaybookRegistry に一本化されており、同じ名前を SharedPreferences 互換 API で開いても裏の KvStore は同一になる。多重オープンによる破損リスクと変更の相互不可視を構造的に排除する
-- リスナーの非対称性（仕様として明記）: 共通 API のリスナーには SharedPreferences 互換 API 経由の編集も届くが、SharedPreferences のリスナーに届くのはあちらの Editor 経由の編集だけ（フレームワークのリスナー契約の再現）
+- リスナーの非対称性（仕様として明記）: 共通 API のリスナーにはストアへのあらゆる書き込み経路（SharedPreferences 互換 API の Editor 経由の編集・明示/透過の import・マイグレーション取り込み）が届くが、SharedPreferences のリスナーに届くのはあちらの Editor 経由の編集だけ（フレームワークのリスナー契約の再現）
 - オプション不一致は API をまたいで fail-fast: SharedPreferences 互換 API の durability は常に既定（ASYNC）のため、SYNC で開いた名前をあちらで開くと例外
 - プラットフォーム実装の結線はストアのインスタンス生成時にだけ効く（先に生成した側の結線が勝つ）
 - 1.x からのアップグレード導線として、:daybook の全入口は 1.x ジャーナルの MigrationSource を自動で含める

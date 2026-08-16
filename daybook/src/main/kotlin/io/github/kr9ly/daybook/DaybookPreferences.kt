@@ -37,7 +37,8 @@ public class DaybookOptions(
  *
  * 同じ [name] を [openDaybook] で開くと、裏のストアは同一になる:
  * どちらの API からの編集ももう一方の API の読み出しに即座に見え、Daybook 側の変更リスナーには
- * この SharedPreferences 互換 API 経由の編集も届く。逆は非対称で、SharedPreferences のリスナーに届くのは
+ * このストアへのあらゆる書き込み経路（この API の Editor 経由の編集・明示/透過の import 含む）が
+ * 届く。逆は非対称で、SharedPreferences のリスナーに届くのは
  * この API の Editor 経由の編集だけ（フレームワークのリスナー契約を再現しているため）。
  * Daybook 側は durability を選べるが、この API は常に既定（ASYNC）なので、同じ [name] を
  * SYNC で開いている場合はオプション不一致で [IllegalArgumentException] になる。
