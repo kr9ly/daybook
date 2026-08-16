@@ -440,6 +440,26 @@ expect/actual と素のインターフェースの使い分け:
 
 ドキュメントバグ修正: docs/common-api.md の settings 例に @OptIn(ExperimentalSettingsApi) 補完、README クイックスタートの asFlow を daybook-coroutines 依存として別フェンスに分離。
 
+## 公開 API 凍結レビューの裁定（2026-08-16）
+
+API.md を 2.0.0 の全公開面を再掲する完全版に改訂（1.0.0 版は git 履歴の v1.0.0 タグが正）し、独立 2 レーン（実コード全数突合 / API 設計批評）でレビューした。突合は転記ミス・漏れ・混入ゼロ（対応ターゲット行の誤記 1 件のみ、修正済み）。
+
+凍結前に適用（2 件）:
+
+- SharedPreferencesMigrationSkip.value を Any?（nullable）から Any へ: 実装は null を渡さず、apple 側 UserDefaultsMigrationSkip.value: Any と型が食い違っていた。凍結後の non-null 化は破壊的変更になるため今のうちに揃えた
+- MigrationException に cause: Throwable? = null を追加: 凍結後のコンストラクタ引数追加はバイナリ非互換（既存 <init>(String) が消える）のため今のうちに
+
+現状維持で裁定（1 件）:
+
+- マイグレーションソースのデフォルト id の綴り（"nsuserdefaults" / "shared-preferences"）は各プラットフォームの母語準拠で不揃いのまま確定。Apple 圏に kebab-case の習慣はなく（reverse-DNS か camelCase）、Android/Web 圏では kebab が自然。id は冪等マーカーのファイル名（<name>.<id>.migrated）に焼き込まれるためリリース後は変更不可 — この裁定は 2.0.0 で最終
+- importAllKeys の iOS 非対称は裁定済みの意図的設計（NSUserDefaults の全キー列挙はシステムキー混入のため明示列挙のみ、KDoc 記載済み）として却下
+
+後送り（3.0 候補・急がない）:
+
+- リスナー・MigrationSource.read・RecordedCommit.changes の Any ベース値表現の sealed 化（影響大、対応 7 型は KDoc 契約で固定済み）
+- 同名 DaybookInternalApi（core と :daybook）の改名: どちらも opt-in 必須・互換性保証なしのため凍結後も変更可能
+- Skip クラスの equals/hashCode/toString 追加: 後方互換の追加として随時可能
+
 ## 留保
 
 Android の ANR ほど鋭いペインは他プラットフォームにない。

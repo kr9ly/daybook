@@ -91,7 +91,7 @@ public class SharedPreferencesSourceKey<T : Any> internal constructor(
 public class SharedPreferencesMigrationSkip internal constructor(
     public val fileName: String,
     public val key: String,
-    public val value: Any?,
+    public val value: Any,
     public val expectedType: String,
 )
 

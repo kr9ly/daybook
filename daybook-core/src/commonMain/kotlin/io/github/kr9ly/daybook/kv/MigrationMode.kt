@@ -29,5 +29,6 @@ public enum class MigrationMode {
 /**
  * マイグレーションソースがソースデータの問題（型不一致・非対応型）で失敗したときの例外。
  * [MigrationMode.STRICT] のソースだけが投げる。[Daybook.Companion.open] から伝播する。
+ * ソースの読み取りで下位の例外を検出して投げ直す場合は [cause] に原因を保持する。
  */
-public class MigrationException(message: String) : RuntimeException(message)
+public class MigrationException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
