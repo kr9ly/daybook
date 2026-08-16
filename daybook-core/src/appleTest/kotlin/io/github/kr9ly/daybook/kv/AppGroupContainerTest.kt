@@ -15,8 +15,9 @@ import kotlin.test.assertEquals
  * コンテナ実パス（containerURLForSecurityApplicationGroupIdentifier）はここでは検証できない:
  * K/N の Gradle テストは app bundle を持たない実行ファイルを simctl spawn で走らせるため
  * アプリの identity がなく、コンテナ解決が null を返す（2026-08-16 に CI で実測）。
- * コンテナ上のストア動作・実 2 プロセス共有の検証には Xcode ホストアプリのハーネスが必要で、
- * multiProcess 保証の格上げ（実機検証）と同じ入り口になる — KMP-2.0.md の据え置き裁定を参照。
+ * コンテナ実パス上のストア動作は Xcode ホストアプリのハーネス（ios-harness/ +
+ * daybook-ios-harness、device-test.yml の ios-host-app-test）で常時検証している。
+ * 実 2 プロセス共有と multiProcess 保証の格上げ（実機検証）は据え置き — KMP-2.0.md を参照。
  */
 class AppGroupContainerTest {
 

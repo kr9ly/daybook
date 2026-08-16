@@ -364,6 +364,25 @@ expect/actual と素のインターフェースの使い分け:
 - 検証: appleMain メタデータコンパイル（Linux ホスト）で F_FULLFSYNC / fcntl のシンボル解決を確認、
   linuxX64Test 256 件緑。apple 側の実行検証は既存の SYNC 経路テストが iosSimulatorArm64Test で回る
 
+実施記録（2026-08-16: Xcode ホストアプリハーネス — App Group コンテナ実パスの常時検証）:
+
+- 背景実測: K/N の Gradle テストは app bundle を持たない実行ファイルの simctl spawn のため
+  containerURLForSecurityApplicationGroupIdentifier が null を返す（AppGroupContainerTest KDoc）。
+  コンテナ実パスの検証には app identity のあるホストアプリが必要
+- 構成: daybook-ios-harness（非公開モジュール。ハーネススキーマ + open facade を Kotlin 側に置き、
+  daybook-core を export した dynamic framework DaybookHarnessKit を iosSimulatorArm64 で出力）+
+  ios-harness/（XcodeGen の project.yml — .xcodeproj はリポジトリ管理せず CI 生成。
+  App Group entitlement 付き最小 SwiftUI アプリ + XCTest 3 件）+
+  device-test.yml の ios-host-app-test job（Gradle で framework → xcodegen → xcodebuild test）
+- 検証結果（CI 実測 2026-08-16、iPhone 17 Pro シミュレータ、3 テスト全緑）:
+  containerURL が実パスに解決され、コンテナ実パス上で全 7 型の読み書き・ジャーナルファイル実在・
+  multiProcess = true（flock + dispatch source watcher）の open / edit が成立
+- 設計メモ: framework は dynamic 一択（ホストアプリとテストバンドルの両方がリンクするため、
+  static だと Kotlin ランタイムの二重リンクでクラス重複）。スキーマ宣言は Swift 側では書けない
+  （DaybookSchema の protected キーファクトリは ObjC export でサブクラスに渡らない）ため Kotlin 側 facade
+- 残: 実 2 プロセス共有（app extension / 第 2 アプリからの同一コンテナアクセス）はこのハーネスの
+  拡張で到達可能になったが未実施。multiProcess 保証の格上げ（実機検証）はリリース後送りのまま
+
 ## 技術的コスト項目
 
 - java.io / java.nio の置換は自前の最小ファイル抽象を expect/actual で持つ（裁定 2026-08-14: kotlinx-io 不採用）
