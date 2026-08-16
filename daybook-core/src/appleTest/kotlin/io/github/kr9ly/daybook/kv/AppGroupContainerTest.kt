@@ -1,93 +1,42 @@
 package io.github.kr9ly.daybook.kv
 
-import kotlinx.cinterop.ExperimentalForeignApi
-import platform.Foundation.NSFileManager
+import io.github.kr9ly.daybook.io.createTempDirectory
 import platform.Foundation.NSUserDefaults
-import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 
 /**
- * App Group コンテナ上での daybook の動作検証（シミュレータで可能な範囲）。
+ * App Group 連携のうち、シミュレータのテストハーネスで検証できる範囲の検証。
  *
- * シミュレータは App Group の entitlement を強制しないため、コンテナのパス解決と
- * その上でのストア操作・NSUserDefaults suite からの取り込みは実 API で検証できる。
- * ここで保証するのはシングルプロセス利用まで: アプリ + extension の実 2 プロセス競合と
- * iOS 実機カーネルでの flock / vnode 監視の挙動はここでは検証できない
- * （multiProcess の保証格上げは実機検証後 — KMP-2.0.md の据え置き裁定）。
+ * App Group スタイルの suite 名（`group.…`）を持つ NSUserDefaults からの取り込みは
+ * app bundle なしでも実 API で動くため、ここで常時検証する。
+ *
+ * コンテナ実パス（containerURLForSecurityApplicationGroupIdentifier）はここでは検証できない:
+ * K/N の Gradle テストは app bundle を持たない実行ファイルを simctl spawn で走らせるため
+ * アプリの identity がなく、コンテナ解決が null を返す（2026-08-16 に CI で実測）。
+ * コンテナ上のストア動作・実 2 プロセス共有の検証には Xcode ホストアプリのハーネスが必要で、
+ * multiProcess 保証の格上げ（実機検証）と同じ入り口になる — KMP-2.0.md の据え置き裁定を参照。
  */
-@OptIn(ExperimentalForeignApi::class)
 class AppGroupContainerTest {
 
     private object Schema : DaybookSchema("app-group") {
         val label = string("label")
-        val count = long("count")
     }
 
     private val groupId = "group.io.github.kr9ly.daybook.tests"
-    private val fileManager = NSFileManager.defaultManager
-    private val createdDirs = mutableListOf<String>()
 
     @AfterTest
     fun tearDown() {
         DaybookRegistry.resetForTesting()
         NSUserDefaults(suiteName = groupId).removeObjectForKey("src_label")
-        createdDirs.forEach { fileManager.removeItemAtPath(it, error = null) }
     }
-
-    /** App Group コンテナ内に一意なストアディレクトリを作って返す。 */
-    private fun containerStoreDir(): String {
-        val container = fileManager.containerURLForSecurityApplicationGroupIdentifier(groupId)
-        assertNotNull(container, "シミュレータでは entitlement なしでもコンテナが解決できるはず")
-        val dir = container.path!! + "/daybook-test-${Random.nextLong().toULong()}"
-        fileManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
-        createdDirs += dir
-        return dir
-    }
-
-    // --- コンテナパス上のストア永続化 ---
 
     @Test
-    fun daybookStore_persistsInsideAppGroupContainer() {
-        val dir = containerStoreDir()
-
-        Daybook.open(dir, Schema).edit {
-            putString("label", "shared")
-            putLong("count", 42L)
-        }
-
-        DaybookRegistry.resetForTesting() // プロセス再起動を模す
-        val reopened = Daybook.open(dir, Schema)
-
-        assertEquals("shared", reopened.getString("label", null))
-        assertEquals(42L, reopened.getLong("count", 0))
-    }
-
-    // --- multiProcess オプション（flock + watcher の結線がコンテナパスで成立するか） ---
-
-    @Test
-    fun multiProcessOption_worksInsideAppGroupContainer() {
-        val dir = containerStoreDir()
-
-        val daybook = Daybook.open(dir, Schema) { multiProcess = true }
-        daybook.edit { putString("label", "multi") }
-        assertEquals("multi", daybook.getString("label", null))
-
-        DaybookRegistry.resetForTesting()
-        val reopened = Daybook.open(dir, Schema) { multiProcess = true }
-        assertEquals("multi", reopened.getString("label", null))
-    }
-
-    // --- App Group suite の NSUserDefaults からコンテナ内ストアへの取り込み ---
-
-    @Test
-    fun migration_fromAppGroupUserDefaults_intoContainerStore() {
+    fun migration_fromAppGroupStyleSuite() {
         NSUserDefaults(suiteName = groupId).setObject("from app group", forKey = "src_label")
-        val dir = containerStoreDir()
 
-        val daybook = Daybook.open(dir, Schema) {
+        val daybook = Daybook.open(createTempDirectory().path, Schema) {
             migrations = listOf(
                 NSUserDefaultsMigrationSource {
                     migrate(UserDefaultsSuite.named(groupId).string("src_label"), into = Schema.label)
