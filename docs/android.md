@@ -13,9 +13,9 @@ KMP 化の予定がない Android アプリで、SharedPreferences のドロッ�
 
 ```kotlin
 dependencies {
-    implementation("io.github.kr9ly:daybook:2.0.0")
-    implementation("io.github.kr9ly:daybook-coroutines:2.0.0") // Flow で受けたい場合のみ
-    testImplementation("io.github.kr9ly:daybook-test:2.0.0")   // ユニットテスト支援（任意）
+    implementation("io.github.kr9ly:daybook:2.0.1")
+    implementation("io.github.kr9ly:daybook-coroutines:2.0.1") // Flow で受けたい場合のみ
+    testImplementation("io.github.kr9ly:daybook-test:2.0.1")   // ユニットテスト支援（任意）
 }
 ```
 
@@ -60,8 +60,10 @@ context.exportAllDaybookToSharedPreferences()                   // 一括書き�
 val shared = context.getDaybookSharedPreferences("shared", DaybookOptions(multiProcess = true))
 ```
 
-書き込みはプロセス間ロックで直列化され、他プロセスの編集は自動的に見えるようになる。
-変更リスナーが発火するのは同一プロセス内の編集だけ（framework と同じ）。
+書き込みはプロセス間ロックで直列化され、他プロセスの編集は読み出しには自動的に反映される。
+ただし OnSharedPreferenceChangeListener が発火するのは、同一プロセスでこの SharedPreferences API 経由で行った編集だけ。
+他プロセスの編集（framework と同じ制約）に加え、同じストアを共通 API（Daybook）経由で編集した場合も、値は反映されるが通知はされない。
+他プロセスや共通 API の変更に反応したい場合は、共通 API 側の変更リスナー（Daybook.addChangeListener）を使う。
 
 ## 型安全 API と Flow
 

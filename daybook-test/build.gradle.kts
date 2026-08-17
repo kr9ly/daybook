@@ -84,7 +84,7 @@ mavenPublishing {
         signAllPublications()
     }
 
-    coordinates("io.github.kr9ly", "daybook-test", "2.0.0")
+    coordinates("io.github.kr9ly", "daybook-test", "2.0.1")
 
     pom {
         name.set("daybook-test")

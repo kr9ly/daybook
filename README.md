@@ -74,19 +74,19 @@ Maven Central から取得できる。
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.kr9ly:daybook-core:2.0.0")
-            implementation("io.github.kr9ly:daybook-coroutines:2.0.0")             // Flow で受けたい場合のみ
-            implementation("io.github.kr9ly:daybook-multiplatform-settings:2.0.0") // Settings 実装として渡す場合のみ
+            implementation("io.github.kr9ly:daybook-core:2.0.1")
+            implementation("io.github.kr9ly:daybook-coroutines:2.0.1")             // Flow で受けたい場合のみ
+            implementation("io.github.kr9ly:daybook-multiplatform-settings:2.0.1") // Settings 実装として渡す場合のみ
         }
         commonTest.dependencies {
-            implementation("io.github.kr9ly:daybook-test:2.0.0")
+            implementation("io.github.kr9ly:daybook-test:2.0.1")
         }
     }
 }
 
 // Android 単体アプリ（SharedPreferences 置き換え）
 dependencies {
-    implementation("io.github.kr9ly:daybook:2.0.0")
+    implementation("io.github.kr9ly:daybook:2.0.1")
 }
 ```
 
@@ -141,6 +141,7 @@ val prefs = context.getDaybookSharedPreferences("settings")
 - [DESIGN.md](./DESIGN.md): 設計判断の詳細（ジャーナル形式・マルチプロセスの機構・耐久性契約・テスト戦略）と先行例との比較
 - [API.md](./API.md): Android 向け SharedPreferences 互換 API の凍結シグネチャ一覧（1.0.0 凍結・2.0 でも維持）
 - daybook 1.x からのアップグレード: 公開 API は互換（再コンパイルのみ）。ジャーナルフォーマットは変わったが、初回オープン時にデータを一度だけ自動で引き継ぐ（[docs/android.md](docs/android.md) を参照）
+- バージョンごとの変更点は [CHANGELOG.md](CHANGELOG.md) を参照
 
 ## ライセンス
 
