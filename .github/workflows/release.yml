@@ -25,14 +25,25 @@ permissions:
   contents: write
 
 jobs:
+  # 公開前ゲート: エミュレータの instrumented テスト（プロセスキル耐性込み）と
+  # iOS シミュレータ / Xcode ホストアプリハーネス（App Group 実コンテナ検証）を
+  # 全実行してから publish に進む（paths-filter は素通し）
+  device-test:
+    uses: ./.github/workflows/device-test.yml
+    with:
+      run_all: true
+
   # Android アダプタ系（jvm + android ターゲットのみ）は ubuntu で publish する。
   # :daybook の POM が :daybook-core の座標を参照するため、依存元の core（release-kmp）を
   # 先に publish してから走らせる
   release-android:
-    needs: [release-kmp]
+    # device-test を直接 needs に持つ: release-kmp 経由の推移的ゲートだけだと、
+    # device-test 失敗で release-kmp が skipped になったとき素通りしてしまう
+    needs: [release-kmp, device-test]
     if: >-
       !cancelled() &&
       (github.event_name == 'push' || inputs.publish_android) &&
+      needs.device-test.result == 'success' &&
       (needs.release-kmp.result == 'success' || needs.release-kmp.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
@@ -65,7 +76,11 @@ jobs:
   # ビルドに macOS ホストが必要なため、別 job で publish する。
   # linuxX64 は検証用ターゲットで publication から除外済み（build.gradle.kts 側の onlyIf）
   release-kmp:
-    if: github.event_name == 'push' || inputs.publish_kmp
+    needs: [device-test]
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'push' || inputs.publish_kmp) &&
+      needs.device-test.result == 'success'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,10 +115,13 @@ jobs:
   # GitHub Release は全モジュールの publish が通ってから作る
   github-release:
     needs: [release-android, release-kmp]
+    # 部分再実行（publish_android: false 等）では対象外 job が skipped になるため、
+    # 両 job とも skipped を許容する。ただし両方 skipped（何も publish していない）なら作らない
     if: >-
       !cancelled() &&
-      needs.release-android.result == 'success' &&
-      (needs.release-kmp.result == 'success' || needs.release-kmp.result == 'skipped')
+      (needs.release-android.result == 'success' || needs.release-android.result == 'skipped') &&
+      (needs.release-kmp.result == 'success' || needs.release-kmp.result == 'skipped') &&
+      (needs.release-android.result == 'success' || needs.release-kmp.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

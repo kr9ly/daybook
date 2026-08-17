@@ -10,6 +10,13 @@ on:
   pull_request:
   # 回帰の手動再実行用（paths-filter を素通しして必ず実行する）
   workflow_dispatch:
+  # release.yml が公開前ゲートとして呼び出す（paths-filter を素通しして必ず実行する）
+  workflow_call:
+    inputs:
+      run_all:
+        description: "paths-filter を無視して全 job を実行する"
+        type: boolean
+        default: true
 
 # contents: write はカバレッジバッジのコミット（android-emulator-test job、main push 時のみ）に使う
 permissions:
@@ -28,9 +35,9 @@ jobs:
 
       - uses: dorny/paths-filter@v3
         id: filter
-        # workflow_dispatch には比較基準がないため filter を実行しない
-        # （job 側の if が event_name で素通しする）
-        if: github.event_name != 'workflow_dispatch'
+        # workflow_dispatch には比較基準がなく、workflow_call（run_all）は全実行のため
+        # filter を実行しない（job 側の if が素通しする）
+        if: github.event_name != 'workflow_dispatch' && inputs.run_all != true
         with:
           # push では同一ブランチの直前コミットと比較する（省略時はデフォルトブランチ比較になり
           # 常に true になってしまう）。pull_request ではこの入力は無視され PR の base と比較される
@@ -64,7 +71,7 @@ jobs:
 
   android-emulator-test:
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true'
+    if: inputs.run_all == true || github.event_name == 'workflow_dispatch' || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -179,7 +186,7 @@ jobs:
   # iosArm64（実機向け）はコンパイルまで、テスト実行は iosSimulatorArm64 のシミュレータで行う
   ios-simulator-test:
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true'
+    if: inputs.run_all == true || github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -220,7 +227,7 @@ jobs:
   # Xcode プロジェクトはリポジトリ管理せず XcodeGen（ios-harness/project.yml）で生成する
   ios-host-app-test:
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.iosHarness == 'true'
+    if: inputs.run_all == true || github.event_name == 'workflow_dispatch' || needs.changes.outputs.iosHarness == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
