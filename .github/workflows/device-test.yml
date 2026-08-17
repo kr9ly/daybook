@@ -145,10 +145,12 @@ jobs:
       - name: Generate JVM coverage reports
         run: ./gradlew :daybook-core:koverXmlReport :daybook:koverXmlReportDebug :daybook-coroutines:koverXmlReport :daybook-test:koverXmlReport :daybook-multiplatform-settings:koverXmlReport
 
+      # --min 95: マージ後カバレッジの下限ゲート（下回るとこの job が落ちる。
+      # release ゲートにも組み込まれているため、リリース前のカバレッジ回帰検知になる）
       - name: Generate coverage badge
         run: |
           mkdir -p .github/badges
-          python3 .github/scripts/coverage_badge.py \
+          python3 .github/scripts/coverage_badge.py --min 95 \
             daybook/build/reports/kover/reportDebug.xml \
             daybook-core/build/reports/kover/report.xml \
             daybook-coroutines/build/reports/kover/report.xml \

@@ -2,6 +2,16 @@
 
 daybook のリリースごとの変更点。コミット単位の一覧は [GitHub Releases](https://github.com/kr9ly/daybook/releases) を参照。
 
+## 2.0.2 - 2026-08-17
+
+外部評価（独立レビュー）の残指摘への対応。
+
+- 変更: close 済みの KvStore への書き込み系 API（put / remove / clear / writeBatch）とマルチプロセスモードの readFresh が、明確な IllegalStateException を投げるようになった。従来は閉じたジャーナルや停止済み配送スレッドに触れて、呼び出しタイミング依存の不定な例外だった。キャッシュ読み（get / getAll）は従来どおり close 後も許容
+- ドキュメント: KvStore.open の KDoc に、レジストリを経由しない multiProcess の二重 open が JVM で OverlappingFileLockException になる落とし穴を明記
+- ドキュメント: KMP-2.0.md を記録専用（ADR ログ）として位置づけを明確化。現行設計の正は DESIGN.md
+- CI: カバレッジバッジ生成に下限ゲート（--min 95）を追加。マージ後カバレッジが下回ると device-test が失敗し、release ゲートとしても機能する
+- テスト: 書き込み並行中の close の安全性テストを追加
+
 ## 2.0.1 - 2026-08-17
 
 外部評価（独立レビュー）で挙がった指摘への対応。

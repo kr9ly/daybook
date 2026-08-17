@@ -1,6 +1,7 @@
 package io.github.kr9ly.daybook.kv
 
 import io.github.kr9ly.daybook.concurrent.Lock
+import io.github.kr9ly.daybook.concurrent.startTestThread
 import io.github.kr9ly.daybook.concurrent.waitUntil
 import io.github.kr9ly.daybook.concurrent.withLock
 import io.github.kr9ly.daybook.io.FilePath
@@ -358,5 +359,51 @@ class KvStoreTest {
         }
         listener.awaitAll()
         assertEquals(listOf<Pair<String, Any?>>("key" to "value"), listener.events)
+    }
+
+    @Test
+    fun writeAfterClose_throwsIllegalStateException() {
+        val store = openStore()
+        store.put("key", "value")
+        store.close()
+        assertFailsWith<IllegalStateException> { store.put("key", "other") }
+        assertFailsWith<IllegalStateException> { store.remove("key") }
+        assertFailsWith<IllegalStateException> { store.clear() }
+        assertFailsWith<IllegalStateException> {
+            store.writeBatch(listOf(KvOperation.Put("a", 1), KvOperation.Remove("key")))
+        }
+        // キャッシュ読みは close 後も許容（最後に見えていた状態を返す）
+        assertEquals("value", store.get("key"))
+    }
+
+    @Test
+    fun closeDuringConcurrentWrites_failsWritersWithContractException() {
+        val store = openStore()
+        val lock = Lock()
+        var stopped = 0
+        var unexpected: Throwable? = null
+        val writers = 4
+        repeat(writers) { n ->
+            startTestThread {
+                var i = 0
+                try {
+                    while (true) {
+                        store.put("key$n", i++)
+                    }
+                } catch (_: IllegalStateException) {
+                    // close 後の書き込みは契約どおりこの例外で終わる
+                } catch (e: Throwable) {
+                    lock.withLock { unexpected = e }
+                } finally {
+                    lock.withLock { stopped++ }
+                }
+            }
+        }
+        // 書き込みが実際に走り始めてから閉じる
+        assertTrue(waitUntil { store.get("key0") != null })
+        store.close()
+        store.close() // 冪等
+        assertTrue(waitUntil { lock.withLock { stopped } == writers })
+        assertNull(lock.withLock { unexpected })
     }
 }

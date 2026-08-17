@@ -13,9 +13,9 @@ KMP 化の予定がない Android アプリで、SharedPreferences のドロッ�
 
 ```kotlin
 dependencies {
-    implementation("io.github.kr9ly:daybook:2.0.1")
-    implementation("io.github.kr9ly:daybook-coroutines:2.0.1") // Flow で受けたい場合のみ
-    testImplementation("io.github.kr9ly:daybook-test:2.0.1")   // ユニットテスト支援（任意）
+    implementation("io.github.kr9ly:daybook:2.0.2")
+    implementation("io.github.kr9ly:daybook-coroutines:2.0.2") // Flow で受けたい場合のみ
+    testImplementation("io.github.kr9ly:daybook-test:2.0.2")   // ユニットテスト支援（任意）
 }
 ```
 

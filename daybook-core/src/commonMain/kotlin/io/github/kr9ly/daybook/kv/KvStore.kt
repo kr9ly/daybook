@@ -199,6 +199,7 @@ public class KvStore private constructor(
     public fun readFresh(key: String): Any? {
         if (interProcessLock != null) {
             writeLock.withLock {
+                check(!closed) { "KvStore is closed" }
                 interProcessLock.withLock { catchUp() }
             }
         }
@@ -210,6 +211,9 @@ public class KvStore private constructor(
         // 追記前に済ませるため append より先に呼ぶ
         val payload = KvOperationCodec.encode(op)
         writeLock.withLock {
+            // close 後の書き込みは、閉じたジャーナルや停止済み配送スレッドに触れて
+            // タイミング依存の不定な例外になる。契約として明確な例外で先に落とす
+            check(!closed) { "KvStore is closed" }
             withProcessLock {
                 if (interProcessLock != null) {
                     // 追記先を最新に合わせる（他プロセスの compaction・追記の取り込み）
@@ -405,7 +409,13 @@ public class KvStore private constructor(
         }
     }
 
-    /** enqueue 済みの通知は配送してから配送スレッドを止め、ジャーナルを閉じる。 */
+    /**
+     * enqueue 済みの通知は配送してから配送スレッドを止め、ジャーナルを閉じる。
+     *
+     * close 後の書き込み系 API（put / remove / clear / writeBatch）と
+     * マルチプロセスモードの [readFresh] は IllegalStateException。
+     * キャッシュ読み（[get] / [getAll]）は close 後も許容する。
+     */
     override fun close() {
         writeLock.withLock {
             if (closed) return
@@ -480,6 +490,12 @@ public class KvStore private constructor(
          * [sinkFactory] と [compactionHook] はテストのクラッシュ注入用フック。
          * [lockFactory] と [watcherFactory] は「1 JVM 内で複数プロセスを模す」
          * JVM テスト用の注入点（実 FileLock / FileObserver は Instrumentation テストで検証）。
+         *
+         * 注意: この API は (directory, name) の同一性を管理しない。同じストアを
+         * 同一プロセスで multiProcess つきで二重に open すると、JVM では書き込み時の
+         * ロック取得が OverlappingFileLockException になる（JVM の FileLock は同一 JVM 内の
+         * 重複取得を拒否するため）。同一プロセス内のインスタンス共有は上位の
+         * [DaybookRegistry] が担うので、通常はそちらを経由すること。
          */
         public fun open(
             directory: FilePath,

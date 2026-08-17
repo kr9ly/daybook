@@ -74,19 +74,19 @@ Maven Central から取得できる。
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.kr9ly:daybook-core:2.0.1")
-            implementation("io.github.kr9ly:daybook-coroutines:2.0.1")             // Flow で受けたい場合のみ
-            implementation("io.github.kr9ly:daybook-multiplatform-settings:2.0.1") // Settings 実装として渡す場合のみ
+            implementation("io.github.kr9ly:daybook-core:2.0.2")
+            implementation("io.github.kr9ly:daybook-coroutines:2.0.2")             // Flow で受けたい場合のみ
+            implementation("io.github.kr9ly:daybook-multiplatform-settings:2.0.2") // Settings 実装として渡す場合のみ
         }
         commonTest.dependencies {
-            implementation("io.github.kr9ly:daybook-test:2.0.1")
+            implementation("io.github.kr9ly:daybook-test:2.0.2")
         }
     }
 }
 
 // Android 単体アプリ（SharedPreferences 置き換え）
 dependencies {
-    implementation("io.github.kr9ly:daybook:2.0.1")
+    implementation("io.github.kr9ly:daybook:2.0.2")
 }
 ```
 

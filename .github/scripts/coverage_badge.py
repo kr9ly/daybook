@@ -12,7 +12,10 @@ JaCoCo は閉じ括弧やシグネチャ行などコンパイラ合成の行テ�
 
 指標は LINE（行）: 一部の命令だけ実行された行もカバー済みと数える、一般に引用される標準的な定義。
 
-使い方: coverage_badge.py <report.xml | evidence:report.xml>... <output.svg>
+使い方: coverage_badge.py [--min PCT] <report.xml | evidence:report.xml>... <output.svg>
+
+--min PCT を渡すと、マージ後のカバレッジが PCT% を下回ったとき exit 1 で失敗する
+（バッジを装飾でなく回帰ゲートとして機能させる）。バッジ SVG は失敗時も書き出す。
 """
 import sys
 import xml.etree.ElementTree as ET
@@ -50,7 +53,12 @@ def color(pct: float) -> str:
 
 
 def main() -> None:
-    reports, out = sys.argv[1:-1], sys.argv[-1]
+    args = sys.argv[1:]
+    min_pct = None
+    if args and args[0] == "--min":
+        min_pct = float(args[1])
+        args = args[2:]
+    reports, out = args[:-1], args[-1]
     lines: dict[tuple[str, str, str], bool] = {}
 
     def walk(path):
@@ -100,6 +108,9 @@ def main() -> None:
     with open(out, "w") as f:
         f.write(svg)
     print(value)
+    if min_pct is not None and total > 0 and pct < min_pct:
+        print(f"coverage {pct:.1f}% is below the required minimum {min_pct:.1f}%", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

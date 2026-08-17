@@ -24,11 +24,11 @@ daybook 2.0 の共通 API（KMP の共通コードから使えるインターフ
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.kr9ly:daybook-core:2.0.1")
-            implementation("io.github.kr9ly:daybook-coroutines:2.0.1") // Flow で受けたい場合のみ
+            implementation("io.github.kr9ly:daybook-core:2.0.2")
+            implementation("io.github.kr9ly:daybook-coroutines:2.0.2") // Flow で受けたい場合のみ
         }
         commonTest.dependencies {
-            implementation("io.github.kr9ly:daybook-test:2.0.1")
+            implementation("io.github.kr9ly:daybook-test:2.0.2")
         }
     }
 }
