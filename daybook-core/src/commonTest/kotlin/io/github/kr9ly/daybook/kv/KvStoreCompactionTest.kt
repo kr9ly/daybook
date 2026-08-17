@@ -4,6 +4,7 @@ import io.github.kr9ly.daybook.concurrent.Lock
 import io.github.kr9ly.daybook.concurrent.waitUntil
 import io.github.kr9ly.daybook.concurrent.withLock
 import io.github.kr9ly.daybook.io.FilePath
+import io.github.kr9ly.daybook.io.IoException
 import io.github.kr9ly.daybook.io.createTempDirectory
 import io.github.kr9ly.daybook.io.fileExists
 import io.github.kr9ly.daybook.io.renameFile
@@ -221,6 +222,41 @@ class KvStoreCompactionTest {
             store.put("key", "v") // compaction は走るがディレクトリ fsync はしない
         }
         assertEquals(0, syncs)
+    }
+
+    @Test
+    fun directorySyncFailureAfterRename_rollsBackToOldGeneration() {
+        var failNextSync = false
+        KvStore.open(
+            directory = tmp,
+            name = "store",
+            syncMode = SyncMode.SYNC,
+            compactionThreshold = 1,
+            directorySync = {
+                if (failNextSync) {
+                    failNextSync = false
+                    throw IoException("simulated directory sync failure")
+                }
+            },
+        ).use { store ->
+            failNextSync = true
+            assertFailsWith<IoException> { store.put("key", "value") }
+            // rename 済みの新世代は巻き戻され、ディスクは旧世代一本に戻る
+            // （新世代を残すとディスクとメモリの世代が乖離し、以後の追記が復旧時に消える）
+            assertTrue(fileExists(generationFile(1)))
+            assertFalse(fileExists(generationFile(2)))
+            assertFalse(fileExists(tempFile(2)))
+            // 追記自体はジャーナルに載っているため、メモリ状態は生きている
+            assertEquals("value", store.get("key"))
+            // 次の書き込みで同じ世代番号の compaction が再試行され、今度は成功する
+            store.put("key2", "v2")
+            assertTrue(fileExists(generationFile(2)))
+            assertFalse(fileExists(generationFile(1)))
+        }
+        KvStore.open(tmp, "store").use { store ->
+            assertEquals("value", store.get("key"))
+            assertEquals("v2", store.get("key2"))
+        }
     }
 
     @Test

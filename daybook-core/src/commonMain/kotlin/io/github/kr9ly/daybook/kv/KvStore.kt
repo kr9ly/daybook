@@ -310,12 +310,22 @@ public class KvStore private constructor(
      * 電源断への安全性は「一時ファイルの fsync → rename 発行 → 旧世代の削除発行」の
      * 順序で担保する（[JournalDirectory] の KDoc を参照）。rename 後は同じファイル
      * ハンドルをそのまま使い続ける（rename でファイルの実体は変わらないため）。
+     *
+     * rename 後のディレクトリ fsync（SYNC モード）が失敗した場合は、新世代ファイルを
+     * 削除して rename ごと巻き戻す。rename 済みの新世代を残したまま旧世代を使い続けると、
+     * ディスク上の最新世代（新）とメモリ状態（旧）が乖離し、以後の追記が旧世代にだけ載って
+     * 復旧時に黙って消えるため。巻き戻せば compaction 前の状態（旧世代一本）に戻り、
+     * 次の compaction が同じ世代番号で安全に再試行できる。
      */
     private fun compact() {
         val newGeneration = generation + 1
         val temp = directory.tempFor(newGeneration)
         deleteFile(temp) // 過去に失敗した compaction の残骸があれば捨てる
         val newJournal = JournalFile.open(temp, syncMode, sinkFactory)
+        // ディレクトリ fsync の失敗時だけ true。GENERATION_COMMITTED フック（テストの
+        // クラッシュ注入）の例外では巻き戻さない — 実クラッシュでは後始末が走らないため、
+        // 巻き戻すとシミュレーションの忠実性が崩れる
+        var rollbackCommittedGeneration = false
         try {
             cache.forEach { key, value ->
                 newJournal.append(KvOperationCodec.encode(KvOperation.Put(key, value)))
@@ -329,11 +339,22 @@ public class KvStore private constructor(
             if (syncMode == SyncMode.SYNC) {
                 // rename の永続化。これがないと電源断で rename が巻き戻り、
                 // 以後の SYNC 追記（tmp の inode に fsync 済み）が復旧時の残骸掃除で消えうる
+                rollbackCommittedGeneration = true
                 directorySync.sync(directoryFile)
+                rollbackCommittedGeneration = false
             }
             compactionHook(CompactionPhase.GENERATION_COMMITTED)
         } catch (e: Throwable) {
             newJournal.close()
+            if (rollbackCommittedGeneration) {
+                try {
+                    deleteFile(directory.fileFor(newGeneration))
+                } catch (_: Throwable) {
+                    // 巻き戻し失敗は元の例外を優先して握りつぶす（診断に有用なのは sync の失敗）。
+                    // 新世代が残っても内容はスナップショットとして自己完結しており、
+                    // 復旧時はそれが正として採用される
+                }
+            }
             throw e
         }
         journal.close()
